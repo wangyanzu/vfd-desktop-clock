@@ -4,8 +4,10 @@
 namespace clockapp {
 void NetworkManager::begin(const Settings& settings, const char* accessKey, uint32_t now) {
   std::snprintf(accessKey_, sizeof(accessKey_), "%s", accessKey);
-  const uint32_t suffix = static_cast<uint32_t>(ESP.getEfuseMac() >> 24) & 0xffffff;
-  std::snprintf(apName_, sizeof(apName_), "VFD-Clock-%06lX", static_cast<unsigned long>(suffix));
+  uint8_t mac[6]{};
+  WiFi.macAddress(mac);
+  const unsigned suffix = (static_cast<unsigned>(mac[4]) << 8) | mac[5];
+  std::snprintf(apName_, sizeof(apName_), "W4VFD-Clock-%04X", suffix);
   WiFi.setHostname(apName_);
   // STA was started early to seed the hardware RNG; update its live netif too.
   if (!WiFi.STA.setHostname(apName_)) Serial.println("Could not set WiFi hostname.");
