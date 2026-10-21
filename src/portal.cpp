@@ -21,10 +21,19 @@ bool equalSecret(const char* a, const char* b, size_t length) {
   return difference == 0;
 }
 bool validAccessKey(const char* key) {
-  if (std::strlen(key) != 16) return false;
-  for (size_t i = 0; i < 16; ++i)
-    if (!((key[i] >= '0' && key[i] <= '9') || (key[i] >= 'A' && key[i] <= 'F'))) return false;
+  if (std::strlen(key) != 8) return false;
+  for (size_t i = 0; i < 8; ++i)
+    if (key[i] < '0' || key[i] > '9') return false;
   return true;
+}
+void randomAccessKey(char* output) {
+  for (size_t i = 0; i < 8; ++i) {
+    uint8_t value;
+    // Reject the uneven tail so each digit has the same probability.
+    do { esp_fill_random(&value, sizeof(value)); } while (value >= 250);
+    output[i] = '0' + value % 10;
+  }
+  output[8] = 0;
 }
 }
 
@@ -59,8 +68,8 @@ bool ConfigPortal::begin(const Settings& defaults, const MqttSettings& mqttDefau
     storage_.getString("access", accessKey_, sizeof(accessKey_));
   }
   if (!validAccessKey(accessKey_)) {
-    randomHex(accessKey_, 16);
-    if (storageReady_ && storage_.putString("access", accessKey_) != 16) storageReady_ = false;
+    randomAccessKey(accessKey_);
+    if (!storageReady_ || storage_.putString("access", accessKey_) != 8) return false;
   }
   randomHex(csrf_, 32);
   const std::string credentials = std::string("admin:") + accessKey_;

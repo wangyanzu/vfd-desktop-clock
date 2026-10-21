@@ -6,6 +6,9 @@ void NetworkManager::begin(const Settings& settings, const char* accessKey, uint
   std::snprintf(accessKey_, sizeof(accessKey_), "%s", accessKey);
   const uint32_t suffix = static_cast<uint32_t>(ESP.getEfuseMac() >> 24) & 0xffffff;
   std::snprintf(apName_, sizeof(apName_), "VFD-Clock-%06lX", static_cast<unsigned long>(suffix));
+  WiFi.setHostname(apName_);
+  // STA was started early to seed the hardware RNG; update its live netif too.
+  if (!WiFi.STA.setHostname(apName_)) Serial.println("Could not set WiFi hostname.");
   WiFi.persistent(false);
   WiFi.setAutoReconnect(false);
   connect(settings, now);

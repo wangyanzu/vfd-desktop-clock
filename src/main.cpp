@@ -171,7 +171,7 @@ void loop() {
     const bool ordinaryEligible = messageEligible() && !messages.count() && !messages.confirming(now);
     rotation.tick(now, ordinaryEligible, display.pageVisible(rotation.key(), now));
     auto frame = renderContent(rotation.page(), timeValid ? &local : nullptr, aht.environment(), sensorEnabled, network.connected(), now);
-    const bool setupPage = network.setupActive() && ((now - bootAt) / 8000) % 2 == 0;
+    const bool setupPage = network.setupActive() && !network.connected() && ((now - bootAt) / 8000) % 2 == 0;
     if (setupPage) {
       frame.set(0, "http://192.168.4.1");
       char key[21]; std::snprintf(key, sizeof(key), "KEY:%s", portal.accessKey()); frame.set(1, key);
