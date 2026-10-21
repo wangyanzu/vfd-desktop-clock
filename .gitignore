@@ -1,0 +1,10 @@
+.pio/
+.pio-core/
+include/local_config.h
+.DS_Store
+
+# Local historical sketch contains account credentials; publish only the sanitized copy.
+/network-clock.ino
+.theia/
+__pycache__/
+*.pyc
