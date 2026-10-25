@@ -24,7 +24,7 @@ try {
   }
   get('scene').selectedIndex=6; change('scene');
   get('timeline').value=2000; get('timeline').dispatchEvent(new window.Event('input'));
-  assert.match(get('row1').textContent,/^记得喝水/);
+  assert.match(get('row1').textContent,/使用电脑/);
   get('scene').selectedIndex=7; change('scene'); end();
   assert.match(get('row1').textContent,/T:24.6C/);
   get('scene').selectedIndex=8; change('scene'); end();

@@ -20,8 +20,8 @@ struct DeviceStatus {
   char clock[9] = "--:--:--";
   uint32_t uptimeSeconds = 0;
   char mqttState[16] = "disabled";
-  uint32_t messageId = 0, messagesDropped = 0, messagesDuplicate = 0;
-  uint8_t messageCount = 0;
+  uint32_t messageId = 0, messagesDropped = 0, messagesDuplicate = 0, messagesEvicted = 0;
+  uint8_t messageCount = 0, messageLevel = 0;
   bool messageVisible = false, rotationPaused = true;
   char contentPage[16] = "date";
   OutdoorWeather outdoor;

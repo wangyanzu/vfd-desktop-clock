@@ -39,12 +39,14 @@ int main() {
     auto corrupt=legacy; corrupt[i]^=1;
     assert(!decodeSettings(corrupt,decoded));
   }
-  for (uint16_t minutes : {0,15,30,60,120}) {
+  for (uint16_t minutes : {0,15,30,60,120,180,240,300,360,420,480,540}) {
     Settings choice=original; choice.sleepMinutes=minutes;
     assert(decodeSettings(encodeSettings(choice),decoded) && decoded.sleepMinutes==minutes);
   }
-  Settings invalidSleep=original; invalidSleep.sleepMinutes=45;
-  assert(!decodeSettings(encodeSettings(invalidSleep),decoded));
+  for (uint16_t invalid : {1,45,121,539,541,600}) {
+    Settings invalidSleep=original; invalidSleep.sleepMinutes=invalid;
+    assert(!decodeSettings(encodeSettings(invalidSleep),decoded));
+  }
   assert(validHost("ntp.aliyun.com") && validHost("192.168.1.1"));
   assert(!validHost("http://ntp.aliyun.com") && !validHost("a..b") && !validHost("a-.b"));
   assert(!validHost("-abc") && !validHost("a\r\nHeader"));
@@ -69,8 +71,8 @@ int main() {
   assert(jsonQuote("a\"b\\c\n") == "\"a\\\"b\\\\c\\u000a\"");
   const std::string body = "ssid=Desk+WiFi&password=&password_mode=keep&brightness=2&offset=480&ntp=ntp.aliyun.com";
   assert(parseSettingsForm(body, input)); assert(input.ssid == "Desk WiFi");
-  assert(parseSettingsForm(body+"&sleep=120",input) && input.sleepMinutes=="120");
-  assert(!applySettings(original,input,next) && next.sleepMinutes==120);
+  assert(parseSettingsForm(body+"&sleep=540",input) && input.sleepMinutes=="540");
+  assert(!applySettings(original,input,next) && next.sleepMinutes==540);
   input.sleepMinutes="45"; next=original;
   assert(applySettings(original,input,next) && next.sleepMinutes==60);
   assert(!parseSettingsForm(body+"&sleep=15&sleep=60",input));

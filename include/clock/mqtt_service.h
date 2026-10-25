@@ -2,7 +2,7 @@
 #include <atomic>
 #include <array>
 #include <freertos/FreeRTOS.h>
-#include <freertos/queue.h>
+#include "clock/pending_messages.h"
 #include "clock/mqtt_settings.h"
 
 namespace clockapp {
@@ -20,7 +20,6 @@ inline const char* mqttStateName(MqttState state) {
   }
   return "unavailable";
 }
-struct IncomingMessage { std::array<char, 256> payload{}; uint16_t length = 0; uint32_t generation = 0; };
 class MqttService {
  public:
   bool begin(const MqttSettings& settings);
@@ -28,17 +27,20 @@ class MqttService {
   bool receive(IncomingMessage& message);
   MqttState state() const { return state_.load(); }
   uint32_t dropped() const { return dropped_.load(); }
+  uint32_t duplicates() const { return duplicates_.load(); }
+  uint32_t evicted() const { return evicted_.load(); }
   void pause(bool value) { pauseRequested_ = value; }
-  bool paused() const { return paused_.load() || !incoming_; }
+  bool paused() const { return paused_.load() || !started_; }
  private:
   static void task(void* self);
   void run();
   MqttSettings desired_{};
   portMUX_TYPE mux_ = portMUX_INITIALIZER_UNLOCKED;
   uint32_t generation_ = 0;
-  QueueHandle_t incoming_ = nullptr;
+  PendingMessages incoming_;
+  bool started_ = false;
   std::atomic<MqttState> state_{MqttState::disabled};
-  std::atomic<uint32_t> dropped_{0};
+  std::atomic<uint32_t> dropped_{0}, evicted_{0}, duplicates_{0};
   std::atomic<bool> pauseRequested_{false}, paused_{false};
 };
 }

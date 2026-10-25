@@ -41,13 +41,13 @@ function page({state=initial, reject=false, offline=false}={}) {
     assert.equal(p.get('password-field').hidden,true);
     p.get('brightness').value='3';
     assert.equal(p.get('sleep').value,'60');
-    assert.deepEqual(Array.from(p.get('sleep').options,option=>option.value),['15','30','60','120','0']);
-    p.get('sleep').value='120';
+    assert.deepEqual(Array.from(p.get('sleep').options,option=>option.value),['15','30','60','120','180','240','300','360','420','480','540','0']);
+    p.get('sleep').value='540';
     p.get('settings').dispatchEvent(new p.window.Event('submit',{cancelable:true}));
     await until(()=>p.get('result').className==='success');
     assert.equal(p.sent.length,1);
     assert.equal(p.sent[0].body.get('brightness'),'3');
-    assert.equal(p.sent[0].body.get('sleep'),'120');
+    assert.equal(p.sent[0].body.get('sleep'),'540');
     assert.equal(p.sent[0].body.get('password_mode'),'keep');
     assert.equal(p.sent[0].body.get('password'),'');
     assert.equal(p.sent[0].options.headers['X-CSRF-Token'],'test-csrf');

@@ -220,8 +220,10 @@ std::string ConfigPortal::stateJson() {
   result += ",\"mqttState\":" + jsonQuote(status.mqttState) +
     ",\"messageId\":" + std::to_string(status.messageId) +
     ",\"messageCount\":" + std::to_string(status.messageCount) +
+    ",\"messageLevel\":" + std::to_string(status.messageLevel) +
     ",\"messagesDropped\":" + std::to_string(status.messagesDropped) +
     ",\"messagesDuplicate\":" + std::to_string(status.messagesDuplicate) +
+    ",\"messagesEvicted\":" + std::to_string(status.messagesEvicted) +
     ",\"messageVisible\":" + (status.messageVisible ? "true" : "false");
   result += ",\"mqtt\":" + mqttPublicJson(mqtt);
   result += ",\"rotation\":{\"pages\":" + std::to_string(rotation.pages) +

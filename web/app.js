@@ -63,7 +63,8 @@
     byId('mqtt-status').textContent = mqttLabels[state.mqttState] || 'MQTT 未配置';
     messageId = Number(state.messageId) || 0;
     byId('ack-message').disabled = ackBusy || !state.messageVisible || !messageId;
-    byId('message-status').textContent = `未确认 ${Number(state.messageCount) || 0} 条 · 拒收 ${Number(state.messagesDropped) || 0} 条 · 合并重复 ${Number(state.messagesDuplicate) || 0} 条`;
+    const messageLevel = {1:'普通',2:'重要',3:'严重'}[state.messageLevel];
+    byId('message-status').textContent = `${messageLevel ? `当前：${messageLevel} · ` : ''}未确认 ${Number(state.messageCount) || 0} 条 · 拒收 ${Number(state.messagesDropped) || 0} 条 · 淘汰旧消息 ${Number(state.messagesEvicted) || 0} 条 · 合并重复 ${Number(state.messagesDuplicate) || 0} 条`;
 
     byId('connection').textContent = state.connected ? '网络已连接 · 设置可随时调整' : state.setupActive ? '配网热点已开启 · 等待连接家庭网络' : '网络离线 · 时钟继续运行';
     byId('network-label').textContent = state.connected ? 'ONLINE' : 'OFFLINE';

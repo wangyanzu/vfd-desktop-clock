@@ -62,22 +62,32 @@ class MessageInbox {
   static constexpr size_t capacity = 8;
   static constexpr uint32_t confirmationMs = 1000;
   static constexpr uint32_t shortPlayMs = 5000;
-  static constexpr uint8_t playLimit = 10;
-  static constexpr uint32_t initialHoldMs = 1500, scrollStepMs = 400, endHoldMs = 1200;
+  static constexpr uint32_t initialHoldMs = 1000, scrollMs = 3000, endHoldMs = 1000;
   enum class Received { added, duplicate, invalid, full };
   struct View { CellFrame frame; uint32_t key = 0, id = 0; bool message = false; };
-  Received receive(std::string_view payload) {
+  Received receive(std::string_view payload, uint8_t level = 1) {
     DisplayText text;
-    if (!encodeMessage(payload, text)) { ++rejected_; return Received::invalid; }
+    if (level < 1 || level > 3 || !encodeMessage(payload, text)) { ++rejected_; return Received::invalid; }
     for (size_t i = 0; i < count_; ++i) {
       const auto& existing = queue_[(head_ + i) % capacity];
-      if (existing.bytes == payload.size() && std::memcmp(existing.utf8.data(), payload.data(), payload.size()) == 0) {
+      if (existing.level == level && existing.bytes == payload.size() && std::memcmp(existing.utf8.data(), payload.data(), payload.size()) == 0) {
         ++duplicates_; return Received::duplicate;
       }
     }
-    if (count_ == capacity) { ++rejected_; return Received::full; }
+    if (count_ == capacity) {
+      size_t victim=capacity;
+      uint8_t lowest=4;
+      for (size_t i=0;i<count_;++i) {
+        const auto candidate=queue_[(head_+i)%capacity].level;
+        // Critical messages require confirmation, even when newer ones arrive.
+        if (candidate<3 && candidate<=level && candidate<lowest) { lowest=candidate; victim=i; }
+      }
+      if (victim==capacity) { ++rejected_; return Received::full; }
+      removeAt(victim); ++evicted_;
+    }
     auto& message = queue_[(head_ + count_) % capacity];
-    message.text = text; message.utf8.fill(0);
+    message = {};
+    message.text = text; message.level = level; message.utf8.fill(0);
     std::memcpy(message.utf8.data(), payload.data(), payload.size());
     message.bytes = static_cast<uint16_t>(payload.size()); message.id = nextId_++;
     if (nextId_ < 16) nextId_ = 16; // IDs 0..15 are reserved for system pages
@@ -95,24 +105,22 @@ class MessageInbox {
     if (!count_) { activeId_ = visibleId_ = 0; return result; }
     auto& current = queue_[head_];
     if (activeId_ != current.id) { activeId_ = current.id; enteredAt_ = now; timing_ = false; }
-    // Wait once for entry animation/UART drain. Ordinary scroll redraws do not
-    // restart playback. Completed plays survive sleep; a partial play restarts.
+    // Only visible time counts; sleep/setup pauses preserve the partial play.
     if (!timing_ && pageSettled) { enteredAt_ = now; timing_ = true; }
-    const uint32_t cycle = current.text.length > 20 ?
-        initialHoldMs + uint32_t(current.text.length - 20) * scrollStepMs + endHoldMs : shortPlayMs;
-    const uint32_t age = timing_ ? uint32_t(now - enteredAt_) : 0;
-    const uint32_t plays = age / cycle;
-    if (plays >= uint32_t(playLimit - current.completedPlays)) {
-      removeFront(); // Automatic expiry is not a user confirmation.
+    const uint32_t delta = timing_ ? uint32_t(now - enteredAt_) : 0;
+    enteredAt_ = now;
+    const uint32_t duration = current.level == 1 ? 15000 : 60000;
+    if (current.level != 3 && delta >= duration - current.playedMs) {
+      removeFront();
       return view(base, eligible, now, false);
     }
-    current.completedPlays += uint8_t(plays);
-    enteredAt_ += plays * cycle;
+    current.playedMs = current.level == 3 ?
+        (current.playedMs + delta % shortPlayMs) % shortPlayMs : current.playedMs + delta;
     size_t offset = 0;
     if (current.text.length > 20) {
       const size_t span = current.text.length - 20;
-      const auto position = age % cycle;
-      if (position >= initialHoldMs) offset = (position - initialHoldMs) / scrollStepMs;
+      const uint32_t position = current.playedMs % shortPlayMs;
+      if (position >= initialHoldMs) offset = size_t(position - initialHoldMs) * span / scrollMs;
       if (offset > span) offset = span;
     }
     result.frame.rows[1] = {};
@@ -134,20 +142,32 @@ class MessageInbox {
   }
   bool confirming(uint32_t now) const { return feedback_ && !elapsed(now, confirmedAt_, confirmationMs); }
   uint32_t visibleId() const { return visibleId_; }
+  Received rejectInvalid() { ++rejected_; return Received::invalid; }
+  uint8_t frontLevel() const { return count_ ? queue_[head_].level : 0; }
+  bool hasCritical() const {
+    for (size_t i=0;i<count_;++i) if (queue_[(head_+i)%capacity].level==3) return true;
+    return false;
+  }
   uint32_t frontId() const { return count_ ? queue_[head_].id : 0; }
   size_t count() const { return count_; }
   uint32_t rejected() const { return rejected_; }
   uint32_t duplicates() const { return duplicates_; }
+  uint32_t evicted() const { return evicted_; }
  private:
+  void removeAt(size_t index) {
+    if (!index) { removeFront(); return; }
+    for (size_t i=index;i+1<count_;++i) queue_[(head_+i)%capacity]=queue_[(head_+i+1)%capacity];
+    queue_[(head_+count_-1)%capacity]={}; --count_;
+  }
   void removeFront() {
     queue_[head_] = {}; head_ = (head_ + 1) % capacity; --count_;
     activeId_ = visibleId_ = 0; timing_ = false;
   }
-  struct Message { uint8_t completedPlays = 0; DisplayText text; std::array<char, 257> utf8{}; uint16_t bytes = 0; uint32_t id = 0; };
+  struct Message { uint8_t level = 1; uint32_t playedMs = 0; DisplayText text; std::array<char, 257> utf8{}; uint16_t bytes = 0; uint32_t id = 0; };
   std::array<Message, capacity> queue_{};
   size_t head_ = 0, count_ = 0;
   uint32_t nextId_ = 16, activeId_ = 0, visibleId_ = 0, enteredAt_ = 0, confirmedAt_ = 0;
-  uint32_t rejected_ = 0, duplicates_ = 0;
+  uint32_t rejected_ = 0, duplicates_ = 0, evicted_ = 0;
   bool feedback_ = false, timing_ = false;
 };
 

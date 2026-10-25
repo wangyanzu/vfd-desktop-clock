@@ -9,7 +9,7 @@ async function scenario(rejected){
   const w=dom.window, get=id=>w.document.getElementById(id), sent=[];
   const state={ssid:'Desk', ntp:'ntp.aliyun.com',csrf:'fixture-csrf',brightness:2,offset:480,storageReady:true,
     connected:true,setupActive:false,temperature:25,humidity:50,sensorEnabled:true,sampleFresh:true,uptime:100,
-    mqttState:'online',messageCount:2,messageId:16,messageVisible:true,messagesDropped:1,messagesDuplicate:3};
+    mqttState:'online',messageCount:2,messageLevel:3,messageId:16,messageVisible:true,messagesDropped:1,messagesEvicted:2,messagesDuplicate:3};
   w.TextEncoder=TextEncoder;
   w.fetch=async (url,options)=>{
     if(url==='/api/state')return{ok:true,status:200,json:async()=>state};
@@ -19,7 +19,9 @@ async function scenario(rejected){
   try{
     w.eval(fs.readFileSync(path.join(root,'web/app.js'),'utf8'));
     await until(()=>!get('ack-message').disabled);
+    assert.match(get('message-status').textContent,/当前：严重/);
     assert.match(get('message-status').textContent,/未确认 2 条/);
+    assert.match(get('message-status').textContent,/淘汰旧消息 2 条/);
     assert.match(get('mqtt-status').textContent,/已连接/);
     get('ack-message').click(); get('ack-message').click();
     await until(()=>get('ack-result').textContent.length>0);

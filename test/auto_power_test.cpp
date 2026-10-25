@@ -26,7 +26,7 @@ int main() {
   assert(!power.sleepDue(1800499,30) && power.sleepDue(1800500,30));
   assert(power.awakeSeconds(60500)==60);
   assert(!power.sleepDue(3600499) && power.sleepDue(3600500)); // default is 60 minutes
-  for (uint16_t minutes : {15,30,60,120}) {
+  for (uint16_t minutes : {15,30,60,120,180,240,300,360,420,480,540}) {
     const uint32_t deadline=500+uint32_t(minutes)*60000;
     assert(!power.sleepDue(deadline-1,minutes) && power.sleepDue(deadline,minutes));
   }

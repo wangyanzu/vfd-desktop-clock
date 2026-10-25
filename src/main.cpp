@@ -131,7 +131,9 @@ bool messageEligible() {
 }
 bool acknowledgeCurrent(uint32_t id, uint32_t now) {
   if (!messageOnScreen || !display.pageVisible(id, now)) return false;
+  const bool critical = messages.frontLevel() == 3;
   if (!messages.acknowledge(id, messageEligible(), now)) return false;
+  if (critical) { autoPower.restart(now); display.brightness(4); }
   messageOnScreen = false; firstFrame = true;
   return true;
 }
@@ -270,7 +272,7 @@ void loop() {
   if (!sameWeather(appliedWeather, weatherSettings)) { weather.configure(weatherSettings); appliedWeather = weatherSettings; }
   IncomingMessage incoming;
   for (unsigned i = 0; i < 4 && mqtt.receive(incoming); ++i)
-    messages.receive(std::string_view(incoming.payload.data(), incoming.length));
+    messages.receive(std::string_view(incoming.payload.data(), incoming.length), incoming.level);
   uint32_t webAck = 0;
   if (portal.takeMessageAck(webAck)) requestAck(webAck, now);
   if (pendingMessageAck && (pendingMessageAck != messages.frontId() ||
@@ -294,7 +296,7 @@ void loop() {
       manual.wake(now); mqtt.pause(false); weather.pause(false); display.wake(now); network.requestSetup();
     }
   }
-  if (displayReady && config::hasButton && !manual.sleeping() && autoPower.sleepDue(now,current.sleepMinutes)) {
+  if (displayReady && config::hasButton && !manual.sleeping() && !messages.hasCritical() && autoPower.sleepDue(now,current.sleepMinutes)) {
     manual.sleep(); shortPress(now, "timer");
     Serial.printf("POWER: %u minutes awake; preparing automatic sleep\n",current.sleepMinutes);
   }
@@ -353,12 +355,14 @@ void loop() {
     if (status.connected) std::snprintf(status.ip, sizeof(status.ip), "%s", WiFi.localIP().toString().c_str());
     std::snprintf(status.mqttState, sizeof(status.mqttState), "%s", mqttStateName(mqtt.state()));
     status.messageCount = static_cast<uint8_t>(messages.count());
+    status.messageLevel = messages.frontLevel();
     status.rotationPaused = !ordinaryEligible;
     std::snprintf(status.contentPage, sizeof(status.contentPage), "%s", contentPageName(rotation.page()));
     status.messageVisible = messageOnScreen;
     status.messageId = messageOnScreen ? selected.id : 0;
     status.messagesDropped = mqtt.dropped() + messages.rejected();
-    status.messagesDuplicate = messages.duplicates();
+    status.messagesDuplicate = messages.duplicates() + mqtt.duplicates();
+    status.messagesEvicted = messages.evicted() + mqtt.evicted();
     portal.publish(status);
   }
   // Local bench controls: s=sleep, w=wake, a=acknowledge, t=sensor diagnosis.

@@ -1,5 +1,6 @@
 #include "clock/mqtt_service.h"
 #include "clock/retry.h"
+#include "clock/message_payload.h"
 #include "clock/settings.h"
 #include <Arduino.h>
 #include <MQTT.h>
@@ -12,11 +13,10 @@ namespace clockapp {
 bool MqttService::begin(const MqttSettings& settings) {
   if (!validMqttSettings(settings)) { state_ = MqttState::invalid; return false; }
   configure(settings);
-  incoming_ = xQueueCreate(4, sizeof(IncomingMessage));
-  if (!incoming_) { state_ = MqttState::unavailable; return false; }
   if (xTaskCreate(task, "mqtt", 10240, this, 1, nullptr) != pdPASS) {
-    vQueueDelete(incoming_); incoming_ = nullptr; state_ = MqttState::unavailable; return false;
+    state_ = MqttState::unavailable; return false;
   }
+  started_ = true;
   return true;
 }
 void MqttService::configure(const MqttSettings& settings) {
@@ -29,9 +29,13 @@ void MqttService::configure(const MqttSettings& settings) {
 }
 bool MqttService::receive(IncomingMessage& message) {
   // Drain at most the fixed queue capacity; discard deliveries from an old config.
-  for (unsigned i = 0; i < 4 && incoming_ && xQueueReceive(incoming_, &message, 0) == pdTRUE; ++i) {
-    portENTER_CRITICAL(&mux_); const auto current = generation_; portEXIT_CRITICAL(&mux_);
-    if (message.generation == current) return true;
+  for (unsigned i=0;i<PendingMessages::capacity;++i) {
+    portENTER_CRITICAL(&mux_);
+    const bool available=incoming_.pop(message);
+    const auto current=generation_;
+    portEXIT_CRITICAL(&mux_);
+    if (!available) return false;
+    if (message.generation==current) return true;
     ++dropped_;
   }
   return false;
@@ -46,16 +50,23 @@ void MqttService::run() {
   secure.setConnectionTimeout(1500);
   secure.setHandshakeTimeout(5);
   secure.useBuiltinCACertBundle(); // certificate validation stays enabled
-  MQTTClient client(512);
+  MQTTClient client(1280);
   MqttSettings active;
   uint32_t activeGeneration = 0;
   client.setOptions(30, true, 1000);
   client.onMessageAdvanced([this, &active, &activeGeneration](MQTTClient*, char* topic, char* bytes, int length) {
-    if (std::strcmp(topic, active.topic) != 0 || length < 1 || length > 256) { ++dropped_; return; }
+    if (std::strcmp(topic, active.topic) != 0 || length < 1 || length > 1024) { ++dropped_; return; }
+    MessagePayload decoded;
+    if (!decodeMessagePayload(std::string_view(bytes,size_t(length)),decoded)) { ++dropped_; return; }
     IncomingMessage message;
-    message.length = static_cast<uint16_t>(length); message.generation = activeGeneration;
-    std::memcpy(message.payload.data(), bytes, static_cast<size_t>(length));
-    if (xQueueSend(incoming_, &message, 0) != pdTRUE) ++dropped_;
+    message.length=uint16_t(decoded.text.size()); message.level=decoded.level; message.generation=activeGeneration;
+    std::memcpy(message.payload.data(),decoded.text.data(),decoded.text.size());
+    portENTER_CRITICAL(&mux_);
+    const auto result=incoming_.push(message);
+    portEXIT_CRITICAL(&mux_);
+    if (result==PendingMessages::Push::rejected) ++dropped_;
+    else if (result==PendingMessages::Push::evicted) ++evicted_;
+    else if (result==PendingMessages::Push::duplicate) ++duplicates_;
   });
   RetrySchedule retry;
   uint32_t protocolDrops = 0;

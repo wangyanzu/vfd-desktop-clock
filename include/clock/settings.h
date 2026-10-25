@@ -69,7 +69,7 @@ inline bool validPassword(std::string_view password) {
   for (unsigned char c : password) if (c < 0x20 || c > 0x7e) return false;
   return true;
 }
-inline bool validSleepMinutes(unsigned value) { return value==0 || value==15 || value==30 || value==60 || value==120; }
+inline bool validSleepMinutes(unsigned value) { return value==0 || value==15 || value==30 || (value>=60 && value<=540 && value%60==0); }
 inline bool validSettings(const Settings& s) {
   // Check termination before treating persisted bytes as strings.
   if (!std::memchr(s.ssid, 0, sizeof(s.ssid)) || !std::memchr(s.password, 0, sizeof(s.password)) ||
@@ -179,7 +179,7 @@ inline const char* applySettings(const Settings& current, const SettingsInput& i
   std::memcpy(next.ntp, input.ntp.data(), input.ntp.size());
   if (!input.sleepMinutes.empty()) {
     int minutes=0;
-    if (!parseInteger(input.sleepMinutes,0,120,minutes) || !validSleepMinutes(unsigned(minutes))) return "请选择有效的自动休眠时间。";
+    if (!parseInteger(input.sleepMinutes,0,540,minutes) || !validSleepMinutes(unsigned(minutes))) return "请选择有效的自动休眠时间。";
     next.sleepMinutes = uint16_t(minutes);
   }
   next.brightness = static_cast<uint8_t>(brightness);
