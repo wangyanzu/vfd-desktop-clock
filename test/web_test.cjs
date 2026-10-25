@@ -39,11 +39,11 @@ function page({state=initial, reject=false, offline=false}={}) {
     assert.equal(p.get('password').value,'');
     assert.equal(p.get('password-mode').value,'keep');
     assert.equal(p.get('password-field').hidden,true);
-    p.get('brightness').value='4';
+    p.get('brightness').value='3';
     p.get('settings').dispatchEvent(new p.window.Event('submit',{cancelable:true}));
     await until(()=>p.get('result').className==='success');
     assert.equal(p.sent.length,1);
-    assert.equal(p.sent[0].body.get('brightness'),'4');
+    assert.equal(p.sent[0].body.get('brightness'),'3');
     assert.equal(p.sent[0].body.get('password_mode'),'keep');
     assert.equal(p.sent[0].body.get('password'),'');
     assert.equal(p.sent[0].options.headers['X-CSRF-Token'],'test-csrf');
@@ -60,6 +60,14 @@ function page({state=initial, reject=false, offline=false}={}) {
     p.get('settings').dispatchEvent(new p.window.Event('submit',{cancelable:true}));
     assert.equal(p.get('result').className,'error'); assert.equal(p.sent.length,2);
   } finally {p.dom.window.close();}
+  const legacy = page({state:{...initial,brightness:4}});
+  try {
+    await until(()=>!legacy.get('fields').disabled);
+    assert.equal(legacy.get('brightness').value,'3');
+    assert.equal(legacy.get('brightness').options.length,3);
+    assert.match(legacy.window.document.getElementById('display-title').parentElement.textContent,/60 秒/);
+    assert.equal(legacy.sent.length,0); // showing a migrated choice does not rewrite NVS
+  } finally {legacy.dom.window.close();}
   const failure = page({reject:true});
   try {
     await until(()=>!failure.get('fields').disabled);

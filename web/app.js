@@ -6,7 +6,8 @@
   const result = byId('result');
   let csrf = '', loaded = false, saving = false, messageId = 0, ackBusy = false, mqttLoaded = false, mqttSaving = false, mqttWritable = false;
   let rotationLoaded = false, rotationSaving = false, rotationWritable = false;
-  const contentPages = ['date','indoor','temperature','humidity'];
+  const contentPages = ['indoor','temperature','humidity','outdoor','comparison'];
+  let weatherLoaded = false, weatherSaving = false, weatherWritable = false;
   const notice = (text, state = '') => { result.textContent = text; result.className = state; };
   async function request(path, options = {}) {
     const controller = new AbortController();
@@ -45,14 +46,15 @@
   }
   function showState(state) {
     csrf = state.csrf;
+    showWeather(state);
     rotationWritable = Boolean(state.storageReady);
     if (!rotationLoaded && state.rotation) {
-      for (const [index, page] of contentPages.entries()) byId(`page-${page}`).checked = Boolean(state.rotation.pages & (1 << index));
+      for (const [index, page] of contentPages.entries()) byId(`page-${page}`).checked = Boolean(state.rotation.pages & (1 << (index + 1)));
       byId('rotation-hold').value = String(state.rotation.hold);
       rotationLoaded = true;
     }
     if (!rotationSaving) byId('rotation-fields').disabled = !rotationWritable || !rotationLoaded;
-    const pageLabels = {date:'日期与星期',indoor:'室内温湿度',temperature:'独立温度',humidity:'独立湿度'};
+    const pageLabels = {indoor:'室内温湿度',temperature:'独立温度',humidity:'独立湿度',outdoor:'室外天气',comparison:'室内外对比'};
     byId('rotation-status').textContent = `${pageLabels[state.contentPage] || '等待设备'}${state.rotationPaused ? ' · 已暂停' : ''}`;
     if (!mqttLoaded && state.mqtt) loadMqtt(state.mqtt);
     mqttWritable = Boolean(state.storageReady);
@@ -69,12 +71,16 @@
     byId('temperature').textContent = state.temperature === null ? '—' : `${state.temperature.toFixed(1)}°C`;
     byId('humidity').textContent = state.humidity === null ? '—' : `${state.humidity.toFixed(1)}%`;
     byId('sensor-note').textContent = !state.sensorEnabled ? '温湿度传感器未启用' : state.temperature === null ? '等待 AHT10 首次有效读数' : state.sampleFresh ? 'AHT10 / 数据正常' : '读取暂不可用，显示最近有效数据';
+    if (state.sensorEnabled && state.sensor && state.sensor.error) {
+      const errors = {1:'I²C 写入失败',2:'状态读取失败',3:'校准失败',4:'测量忙超时',5:'测量读取失败',6:'传感器返回空测量帧',7:'测量值超范围',8:'I²C 总线恢复失败'};
+      byId('sensor-note').textContent = `${errors[state.sensor.error] || '传感器读取失败'} · 连续失败 ${Number(state.sensor.consecutiveFailures) || 0} 次 · 恢复尝试 ${Number(state.sensor.recoveries) || 0} 次${state.temperature === null ? ' · 暂无有效读数' : ' · 保留最近有效数据'}`;
+    }
     byId('address').textContent = `IP ${state.ip || '192.168.4.1（热点）'}`;
     const minutes = Math.floor(state.uptime / 60);
     byId('uptime').textContent = `运行 ${Math.floor(minutes / 60)}h ${minutes % 60}m`;
     if (!loaded) {
       byId('ssid').value = state.ssid;
-      byId('brightness').value = String(state.brightness);
+      byId('brightness').value = String(Math.min(3, state.brightness));
       byId('offset').value = String(state.offset);
       byId('ntp').value = state.ntp;
       byId('password-mode').value = state.ssid ? 'keep' : 'replace';
@@ -90,6 +96,7 @@
       byId('network-label').textContent = 'UNREACHABLE';
       byId('ack-message').disabled = true; messageId = 0;
       byId('sensor-note').textContent = '连接中断，显示最近读取的状态';
+      byId('weather-status').textContent = '设备连接中断，天气数值为上次读取';
       if (!loaded) notice(error.message, 'error');
     } finally { setTimeout(poll, 3000); }
   }
@@ -169,7 +176,7 @@
     const notify = (text, state = '') => { rotationResult.textContent = text; rotationResult.className = state; };
     if (rotationSaving || !rotationLoaded || !rotationForm.reportValidity()) return;
     let pages = 0;
-    for (const [index, page] of contentPages.entries()) if (byId(`page-${page}`).checked) pages |= 1 << index;
+    for (const [index, page] of contentPages.entries()) if (byId(`page-${page}`).checked) pages |= 1 << (index + 1);
     if (!pages) { notify('请至少选择一项显示内容。', 'error'); return; }
     const body = new URLSearchParams({pages:String(pages),hold:byId('rotation-hold').value});
     rotationSaving = true; byId('rotation-fields').disabled = true; byId('rotation-save').textContent = '正在保存…';
@@ -186,6 +193,61 @@
       rotationSaving = false; byId('rotation-fields').disabled = !rotationWritable || !rotationLoaded;
       byId('rotation-save').textContent = '保存轮播设置 ↗';
     }
+  });
+  function weatherSecretMode(key) {
+    const replacing = byId(`weather-${key}-mode`).value === 'replace';
+    byId(`weather-${key}-field`).hidden = !replacing;
+    byId(`weather-${key}`).disabled = !replacing;
+    byId(`weather-${key}`).required = replacing;
+  }
+  function showWeather(state) {
+    weatherWritable = Boolean(state.storageReady);
+    if (!weatherLoaded && state.weather) {
+      const settings = state.weather;
+      byId('weather-enabled').value = settings.enabled ? '1' : '0';
+      byId('weather-location').value = settings.location;
+      byId('weather-refresh').value = String(settings.refreshMinutes);
+      for (const [key, set] of [['public',settings.publicKeySet],['private',settings.privateKeySet]]) {
+        byId(`weather-${key}`).value = '';
+        byId(`weather-${key}-mode`).value = set ? 'keep' : 'clear';
+        byId(`weather-${key}-note`).textContent = set ? '已保存，不回显。' : '尚未保存。';
+        weatherSecretMode(key);
+      }
+      weatherLoaded = true;
+    }
+    if (!weatherSaving) byId('weather-fields').disabled = !weatherWritable || !weatherLoaded;
+    const outdoor = state.outdoor || {};
+    const indoorValid = Number.isFinite(state.temperature), outdoorValid = Number.isFinite(outdoor.temperature);
+    byId('indoor-comparison').textContent = indoorValid ? `${state.temperature.toFixed(1)}°C${state.sampleFresh ? '' : ' · 旧'}` : '—';
+    byId('outdoor-temperature').textContent = outdoorValid ? `${outdoor.temperature.toFixed(1)}°C${outdoor.fresh ? '' : ' · 旧'}` : '—';
+    byId('indoor-comparison-humidity').textContent = Number.isFinite(state.humidity) ? `湿度 ${state.humidity.toFixed(1)}%` : '湿度不可用';
+    byId('outdoor-comparison-humidity').textContent = Number.isFinite(outdoor.humidity) ? `湿度 ${outdoor.humidity.toFixed(1)}%` : '湿度未提供';
+    const labels = {disabled:'天气未配置',waiting_wifi:'等待 Wi-Fi',waiting_time:'等待校时后签名请求',fetching:'正在更新天气',online:'天气已更新',retrying:'天气请求失败，稍后重试',invalid_response:'天气返回数据无效，请核对 V3 产品权限和城市',auth_error:'天气鉴权失败，请核对公私钥和产品权限',rate_limited:'访问频率受限，稍后重试',unavailable:'天气服务不可用'};
+    byId('weather-status').textContent = (labels[outdoor.state] || '天气未配置') + (outdoorValid && !outdoor.fresh ? ' · 数据已过期' : '');
+    const humidity = Number.isFinite(outdoor.humidity) ? `${outdoor.humidity.toFixed(1)}%` : '接口未提供';
+    byId('weather-observation').textContent = outdoorValid ? `${outdoor.city || ''} · ${outdoor.text || ''} · 室外湿度 ${humidity} · 观测时间 ${(outdoor.updated || '').replace('T',' ')}` : '等待天气数据';
+  }
+  for (const key of ['public','private']) byId(`weather-${key}-mode`).addEventListener('change', () => weatherSecretMode(key));
+  byId('weather-settings').addEventListener('submit', async event => {
+    event.preventDefault();
+    const form = byId('weather-settings'), result = byId('weather-result');
+    const notify = (text, state = '') => { result.textContent = text; result.className = state; };
+    if (weatherSaving || !weatherLoaded || !weatherWritable || !form.reportValidity()) return;
+    const values = {enabled:byId('weather-enabled').value, location:byId('weather-location').value.trim(), refresh:byId('weather-refresh').value};
+    for (const key of ['public','private']) {
+      const mode = byId(`weather-${key}-mode`).value;
+      values[`${key}_mode`] = mode;
+      values[`${key}_key`] = mode === 'replace' ? byId(`weather-${key}`).value.trim() : '';
+    }
+    if (new TextEncoder().encode(values.location).length > 64) { notify('城市最多 64 字节。','error'); return; }
+    weatherSaving = true; byId('weather-fields').disabled = true; byId('weather-save').textContent = '正在保存…';
+    try {
+      await request('/api/weather', {method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded','X-CSRF-Token':csrf},body:new URLSearchParams(values)});
+      byId('weather-public').value = ''; byId('weather-private').value = ''; weatherLoaded = false;
+      notify('已保存，设备将自动获取天气；请在轮播中选择室内外对比。','success');
+      try { showState(await request('/api/state')); } catch (_) { notify('已保存，稍后自动刷新状态。','success'); }
+    } catch (error) { notify(error.name === 'AbortError' ? '未收到保存结果，请刷新核对后重试。' : error.message,'error'); }
+    finally { weatherSaving = false; byId('weather-fields').disabled = !weatherWritable || !weatherLoaded; byId('weather-save').textContent = '保存天气设置 ↗'; }
   });
   poll();
 })();

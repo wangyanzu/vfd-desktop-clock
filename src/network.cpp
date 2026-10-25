@@ -21,6 +21,13 @@ void NetworkManager::connect(const Settings& settings, uint32_t now) {
   WiFi.disconnect(false, false);
   if (active_.ssid[0]) WiFi.begin(active_.ssid, active_.password);
 }
+void NetworkManager::resume(const Settings& settings, uint32_t now) {
+  policy_ = NetworkPolicy{};
+  waiting_ = wasConnected_ = false;
+  WiFi.mode(WIFI_STA);
+  WiFi.setHostname(apName_);
+  connect(settings, now);
+}
 void NetworkManager::tick(const Settings& desired, uint32_t now) {
   if (!sameNetwork(desired, active_)) {
     if (!waiting_ || !sameNetwork(desired, pending_)) {

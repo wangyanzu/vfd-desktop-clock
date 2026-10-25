@@ -6,11 +6,15 @@
 #include "clock/settings.h"
 #include "clock/mqtt_settings.h"
 #include "clock/rotation.h"
+#include "clock/weather_settings.h"
+#include "clock/weather.h"
 
 namespace clockapp {
 struct DeviceStatus {
   bool connected = false, setupActive = false, sensorEnabled = false, sampleFresh = false;
   bool sampleValid = false, timeValid = false;
+  uint8_t sensorError = 0;
+  uint32_t sensorSamples = 0, sensorFailures = 0, sensorConsecutiveFailures = 0, sensorRecoveries = 0;
   float temperature = 0, humidity = 0;
   char ip[16]{};
   char clock[9] = "--:--:--";
@@ -20,6 +24,9 @@ struct DeviceStatus {
   uint8_t messageCount = 0;
   bool messageVisible = false, rotationPaused = true;
   char contentPage[16] = "date";
+  OutdoorWeather outdoor;
+  char weatherState[24] = "disabled";
+  int weatherHttpStatus = 0;
 };
 class ConfigPortal {
  public:
@@ -28,6 +35,7 @@ class ConfigPortal {
   Settings settings();
   MqttSettings mqttSettings();
   RotationSettings rotationSettings();
+  WeatherSettings weatherSettings();
   void publish(const DeviceStatus& status);
   bool cycleBrightness();
   bool takeMessageAck(uint32_t& id);
@@ -45,6 +53,7 @@ class ConfigPortal {
   esp_err_t update(httpd_req_t* request);
   esp_err_t updateRotation(httpd_req_t* request);
   esp_err_t updateMqtt(httpd_req_t* request);
+  esp_err_t updateWeather(httpd_req_t* request);
   bool receiveForm(httpd_req_t* request, std::string& body, size_t maximum);
   esp_err_t acknowledgeMessage(httpd_req_t* request);
   uint32_t pendingMessageAck_ = 0;
@@ -55,6 +64,7 @@ class ConfigPortal {
   Settings settings_{};
   MqttSettings mqttSettings_{};
   RotationSettings rotationSettings_{};
+  WeatherSettings weatherSettings_{};
   DeviceStatus status_{};
   bool storageReady_ = false;
   httpd_handle_t server_ = nullptr;

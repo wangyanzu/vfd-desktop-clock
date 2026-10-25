@@ -64,6 +64,16 @@ void MqttService::run() {
   RetrySchedule retry;
   uint32_t protocolDrops = 0;
   for (;;) {
+    if (pauseRequested_.load()) {
+      if (client.connected()) client.disconnect();
+      plain.stop(); secure.stop();
+      retry.reset();
+      state_ = MqttState::waitingWifi;
+      paused_ = true;
+      vTaskDelay(pdMS_TO_TICKS(20));
+      continue;
+    }
+    paused_ = false;
     MqttSettings desired;
     uint32_t generation;
     portENTER_CRITICAL(&mux_); desired = desired_; generation = generation_; portEXIT_CRITICAL(&mux_);

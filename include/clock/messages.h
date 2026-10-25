@@ -104,8 +104,10 @@ class MessageInbox {
     result.frame.rows[1] = {};
     for (size_t column = 0; column < 20 && offset + column < current.text.length; ++column)
       result.frame.rows[1][column] = current.text.cells[offset + column];
-    result.frame.rows[0][17] = Cell::ascii('M');
-    result.frame.rows[0][18] = Cell::ascii(static_cast<char>('0' + count_));
+    if (base.rows[0][17] == Cell{} && base.rows[0][18] == Cell{}) {
+      result.frame.rows[0][17] = Cell::ascii('M');
+      result.frame.rows[0][18] = Cell::ascii(static_cast<char>('0' + count_));
+    }
     result.key = result.id = current.id; result.message = true; visibleId_ = current.id;
     return result;
   }

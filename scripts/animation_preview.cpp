@@ -33,10 +33,11 @@ std::string displayUtf8(const Cell& cell) {
   return "?";
 }
 void emitScene(const char* id, const char* name, Motion motion) {
-  PreviewPort port; Screen screen(port, motion, 100);
+  PreviewPort port; Screen screen(port, motion, 100, true);
   const bool messageScene = std::string(id) == "message" || std::string(id) == "scroll" || std::string(id) == "confirm";
+  const bool digitScene = std::string(id) == "digits";
   const bool rotationScene = std::string(id) == "rotation";
-  ContentRotation rotation; rotation.configure({3, 5});
+  ContentRotation rotation; rotation.configure({6, 5});
   Environment environment; environment.accept(24.6f, 51.2f, 0);
   tm local{}; local.tm_year = 126; local.tm_mon = 9; local.tm_mday = 21; local.tm_wday = 3;
   local.tm_hour = 14; local.tm_min = 32; local.tm_sec = 10;
@@ -44,28 +45,33 @@ void emitScene(const char* id, const char* name, Motion motion) {
   if (messageScene) inbox.receive(std::string(id) == "scroll" ? "请记得喝水，长时间使用电脑后起身活动一下，看看远处放松眼睛。" : "喝杯水，休息一下。");
   bool confirmed = false;
   const bool firstData = std::string(id) == "data";
-  const auto original = frame("10-21 14:32:10", firstData ? "T:--.-C RH:--.-%" : "T:24.6C RH:51.2%");
+  const auto original = frame("2026-10 14:32:10 WED", firstData ? "T:--.-C RH:--.-%" : "T:24.6C RH:51.2%");
   screen.page(original, 0, 0); screen.begin(2);
   uint32_t start = 0, end = 1800;
   if (std::string(id) != "boot") {
     for (uint32_t now = 0; now <= 2000; now += 20) step(screen, port, now);
     start = 2100; end = 3300;
-    if (rotationScene) end = start + 18000;
+    if (digitScene) end = start + 2400;
+    else if (rotationScene) end = start + 18000;
     else if (messageScene) end = start + (std::string(id) == "scroll" ? 9000 : 3000);
     else if (std::string(id) == "sleep") screen.sleep(start);
     else if (std::string(id) == "wake") {
       screen.sleep(start);
       for (uint32_t now = start; now <= 2700; now += 20) step(screen, port, now);
       start = 2800; end = 4000;
-      screen.page(frame("10-21 14:35:02", "T:24.7C RH:51.2%"), 0, start);
+      screen.page(frame("2026-10 14:35:02 WED", "T:24.7C RH:51.2%"), 0, start);
       screen.wake(start);
     } else if (firstData) {
-      screen.page(frame("10-21 14:32:11", "T:24.6C RH:51.2%"), 0, start, true);
-    } else if (!rotationScene) screen.page(frame("10-21 14:32:11", "OUT:18.2C CLOUDY"), 1, start, false, 2);
+      screen.page(frame("2026-10 14:32:11 WED", "T:24.6C RH:51.2%"), 0, start, true);
+    } else if (!rotationScene && !digitScene) screen.page(frame("2026-10 14:32:11 WED", "OUT:18.2C CLOUDY"), 1, start, false, 2);
   }
   std::cout << "{\"id\":" << jsonQuote(id) << ",\"name\":" << jsonQuote(name) << ",\"frames\":[";
   bool first = true;
   for (uint32_t now = start; now <= end; now += 20) {
+    if (digitScene) {
+      char clock[21]; std::snprintf(clock, sizeof(clock), "2026-10 14:32:%02u WED", unsigned(10 + (now - start) / 1000));
+      screen.page(frame(clock, "T:24.6C RH:51.2%"), 0, now);
+    }
     if (messageScene || rotationScene) {
       port.now = now;
       if (rotationScene && now == start + 6500) inbox.receive("喝杯水，休息一下。");
@@ -79,7 +85,7 @@ void emitScene(const char* id, const char* name, Motion motion) {
       screen.page(selected.frame, key, now, false, 2);
     }
     step(screen, port, now);
-    if ((now - start) % 100) continue;
+    if ((now - start) % 40) continue;
     if (!first) std::cout << ',';
     first = false;
     std::cout << "{\"ms\":" << now - start << ",\"state\":" << int(screen.state()) << ",\"rows\":[";
@@ -99,9 +105,9 @@ int main() {
   for (unsigned mode = 0; mode < 3; ++mode) {
     if (mode) std::cout << ',';
     std::cout << jsonQuote(modes[mode]) << ":[";
-    const char* ids[] = {"boot", "wake", "sleep", "switch", "data", "message", "scroll", "confirm", "rotation"};
-    const char* names[] = {"开机展开", "唤醒揭示", "睡眠收拢", "内容切换", "首次数据入场", "中文消息入场", "长消息滚动", "消息确认反馈", "轮播与消息打断"};
-    for (unsigned i = 0; i < 9; ++i) {
+    const char* ids[] = {"boot", "wake", "sleep", "switch", "data", "message", "scroll", "confirm", "rotation", "digits"};
+    const char* names[] = {"开机展开", "唤醒揭示", "睡眠收拢", "内容切换", "首次数据入场", "中文消息入场", "长消息滚动", "消息确认反馈", "轮播与消息打断", "静态时间更新"};
+    for (unsigned i = 0; i < 10; ++i) {
       if (i) std::cout << ',';
       emitScene(ids[i], names[i], static_cast<Motion>(mode));
     }

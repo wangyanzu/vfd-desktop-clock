@@ -25,14 +25,14 @@ async function scenario({reject=false,storage=true}={}) {
     assert.match(get('rotation-status').textContent,/已暂停/);
     assert.equal(get('rotation-fields').disabled,!storage);
     if(!storage) return;
-    assert.equal(get('page-date').checked,true); assert.equal(get('page-indoor').checked,true);
+    assert.equal(get('page-date'), null); assert.equal(get('page-indoor').checked,true);
     assert.equal(get('page-temperature').checked,false);
-    for(const page of ['date','indoor','temperature','humidity']) get(`page-${page}`).checked=false;
+    for(const page of ['indoor','temperature','humidity']) get(`page-${page}`).checked=false;
     get('rotation-settings').dispatchEvent(new w.Event('submit',{cancelable:true}));
     assert.equal(sent.length,0); assert.match(get('rotation-result').textContent,/至少选择/);
     get('page-humidity').checked=true; get('rotation-hold').value='12';
     await nextPoll();
-    assert.equal(get('page-humidity').checked,true); assert.equal(get('page-date').checked,false);
+    assert.equal(get('page-humidity').checked,true); assert.equal(get('page-date'), null);
     assert.equal(get('rotation-hold').value,'12'); // live status cannot overwrite edits
     get('rotation-settings').dispatchEvent(new w.Event('submit',{cancelable:true}));
     get('rotation-settings').dispatchEvent(new w.Event('submit',{cancelable:true}));

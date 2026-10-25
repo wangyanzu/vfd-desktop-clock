@@ -9,7 +9,7 @@ try {
   const get = id => window.document.getElementById(id);
   const change = id => get(id).dispatchEvent(new window.Event('change'));
   const end = () => { get('timeline').value = get('timeline').max; get('timeline').dispatchEvent(new window.Event('input')); };
-  assert.equal(get('scene').options.length,9);
+  assert.equal(get('scene').options.length,10);
   assert.equal(get('mode').options.length,3);
   assert.equal(window.document.querySelectorAll('.cell').length,40);
   get('scene').selectedIndex=2; change('scene'); end();
@@ -28,6 +28,9 @@ try {
   get('scene').selectedIndex=7; change('scene'); end();
   assert.match(get('row1').textContent,/T:24.6C/);
   get('scene').selectedIndex=8; change('scene'); end();
-  assert.match(get('row1').textContent,/2026-10-21 WED/);
+  assert.match(get('row0').textContent,/2026-10 14:32:10 WED/);
+  assert.match(get('row1').textContent,/T:24.6C|TEMP: 24.6C/);
+  get('scene').selectedIndex=9; change('scene'); end();
+  assert.match(get('row0').textContent,/14:32:12/);
   console.log('PASS: generated animation preview scenes, motion modes, scrubber, asleep/wake state and final data');
 } finally { dom.window.close(); }

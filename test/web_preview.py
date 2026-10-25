@@ -13,7 +13,9 @@ STATE = dict(ssid="Desk WiFi", ntp="ntp.aliyun.com", ip="192.168.1.40", csrf="fi
              setupActive=False, timeValid=True, sensorEnabled=True, sampleFresh=True,
              uptime=3661, temperature=24.6, humidity=51.2, clock="14:32:08", mqttState="disabled", messageCount=0, messageId=0,
              messageVisible=False, messagesDropped=0, messagesDuplicate=0,
-             rotation=dict(pages=3,hold=8), contentPage="indoor", rotationPaused=False,
+             rotation=dict(pages=35,hold=8), contentPage="comparison", rotationPaused=False,
+             weather=dict(enabled=True,location="shanghai",refreshMinutes=15,publicKeySet=True,privateKeySet=True),
+             outdoor=dict(state="online",httpStatus=200,temperature=18.0,humidity=None,fresh=True,city="Shanghai",text="Cloudy",updated="2026-10-25T14:30:00+08:00"),
              mqtt=dict(enabled=False,host="bemfa.com",port=9503,tls=True,topic="",username="",
                        clientIdSet=False,passwordSet=False))
 
@@ -41,12 +43,21 @@ class Handler(BaseHTTPRequestHandler):
         self.reply(200, content_type, (ROOT / "web" / filename).read_text())
 
     def do_POST(self):
-        if self.path not in {"/api/settings", "/api/mqtt", "/api/messages/ack", "/api/rotation"}:
+        if self.path not in {"/api/settings", "/api/mqtt", "/api/messages/ack", "/api/rotation", "/api/weather"}:
             return self.reply(404, "application/json", '{"error":"Not found"}')
         body = self.rfile.read(min(int(self.headers.get("Content-Length", 0)), 2048)).decode()
         if "--reject-save" in sys.argv:
             return self.reply(503, "application/json; charset=utf-8", '{"error":"保存失败，当前配置未改变。"}')
         data = parse_qs(body, keep_blank_values=True)
+        if self.path == "/api/weather":
+            names = {"enabled", "location", "refresh", "public_key", "private_key", "public_mode", "private_mode"}
+            if set(data) != names or any(len(value) != 1 for value in data.values()):
+                return self.reply(400, "application/json", '{"error":"Invalid fields"}')
+            STATE["weather"].update(enabled=data["enabled"][0] == "1", location=data["location"][0], refreshMinutes=int(data["refresh"][0]))
+            for key, mode in (("publicKeySet", "public_mode"), ("privateKeySet", "private_mode")):
+                if data[mode][0] != "keep":
+                    STATE["weather"][key] = data[mode][0] == "replace"
+            return self.reply(200, "application/json", '{"ok":true}')
         if self.path == "/api/rotation":
             if set(data) != {"pages", "hold"} or any(len(value) != 1 for value in data.values()):
                 return self.reply(400, "application/json", '{"error":"Invalid fields"}')
@@ -54,7 +65,7 @@ class Handler(BaseHTTPRequestHandler):
                 pages, hold = int(data["pages"][0]), int(data["hold"][0])
             except ValueError:
                 return self.reply(400, "application/json", '{"error":"Invalid values"}')
-            if not 1 <= pages <= 15 or not 5 <= hold <= 120:
+            if not 1 <= pages <= 63 or not 5 <= hold <= 120:
                 return self.reply(400, "application/json", '{"error":"Invalid values"}')
             STATE["rotation"] = dict(pages=pages, hold=hold)
             return self.reply(200, "application/json", '{"ok":true}')

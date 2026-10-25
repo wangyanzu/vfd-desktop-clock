@@ -28,6 +28,8 @@ class MqttService {
   bool receive(IncomingMessage& message);
   MqttState state() const { return state_.load(); }
   uint32_t dropped() const { return dropped_.load(); }
+  void pause(bool value) { pauseRequested_ = value; }
+  bool paused() const { return paused_.load() || !incoming_; }
  private:
   static void task(void* self);
   void run();
@@ -37,5 +39,6 @@ class MqttService {
   QueueHandle_t incoming_ = nullptr;
   std::atomic<MqttState> state_{MqttState::disabled};
   std::atomic<uint32_t> dropped_{0};
+  std::atomic<bool> pauseRequested_{false}, paused_{false};
 };
 }

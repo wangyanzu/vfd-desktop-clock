@@ -65,6 +65,11 @@ bool ConfigPortal::begin(const Settings& defaults, const MqttSettings& mqttDefau
         storage_.getBytes("rotation", rotationRecord.data(), rotationRecord.size()) == rotationRecord.size()) {
       if (!decodeRotation(rotationRecord, rotationSettings_)) Serial.println("Invalid rotation record; using defaults.");
     }
+    WeatherRecord weatherRecord{};
+    if (storage_.getBytesLength("weather") == weatherRecord.size() &&
+        storage_.getBytes("weather", weatherRecord.data(), weatherRecord.size()) == weatherRecord.size()) {
+      if (!decodeWeather(weatherRecord, weatherSettings_)) Serial.println("Invalid weather record; weather disabled.");
+    }
     storage_.getString("access", accessKey_, sizeof(accessKey_));
   }
   if (!validAccessKey(accessKey_)) {
@@ -104,6 +109,9 @@ void ConfigPortal::publish(const DeviceStatus& status) {
   status_ = status;
   portEXIT_CRITICAL(&mux_);
 }
+WeatherSettings ConfigPortal::weatherSettings() {
+  portENTER_CRITICAL(&mux_); const auto copy = weatherSettings_; portEXIT_CRITICAL(&mux_); return copy;
+}
 ConfigPortal::SaveResult ConfigPortal::saveLocked(const Settings& next) {
   if (!storageReady_ || !validSettings(next)) return SaveResult::unavailable;
   const auto record = encodeSettings(next);
@@ -131,9 +139,10 @@ bool ConfigPortal::start() {
   config.lru_purge_enable = true;
   config.recv_wait_timeout = 2;
   config.send_wait_timeout = 2;
+  config.max_uri_handlers = 10;
   if (httpd_start(&server_, &config) != ESP_OK) return false;
-  const char* paths[] = {"/", "/style.css", "/app.js", "/api/state", "/api/settings", "/api/messages/ack", "/api/mqtt", "/api/rotation"};
-  for (size_t i = 0; i < 8; ++i) {
+  const char* paths[] = {"/", "/style.css", "/app.js", "/api/state", "/api/settings", "/api/messages/ack", "/api/mqtt", "/api/rotation", "/api/weather"};
+  for (size_t i = 0; i < 9; ++i) {
     httpd_uri_t route{};
     route.uri = paths[i];
     route.method = i >= 4 ? HTTP_POST : HTTP_GET;
@@ -181,8 +190,9 @@ std::string ConfigPortal::stateJson() {
   Settings current;
   MqttSettings mqtt;
   RotationSettings rotation;
+  WeatherSettings weather;
   portENTER_CRITICAL(&mux_);
-  status = status_; current = settings_; mqtt = mqttSettings_; rotation = rotationSettings_;
+  status = status_; current = settings_; mqtt = mqttSettings_; rotation = rotationSettings_; weather = weatherSettings_;
   portEXIT_CRITICAL(&mux_);
   char numbers[220];
   std::snprintf(numbers, sizeof(numbers),
@@ -199,6 +209,10 @@ std::string ConfigPortal::stateJson() {
     std::snprintf(values, sizeof(values), ",\"temperature\":%.1f,\"humidity\":%.1f", status.temperature, status.humidity);
     result += values;
   } else result += ",\"temperature\":null,\"humidity\":null";
+  result += ",\"sensor\":{\"error\":" + std::to_string(status.sensorError) +
+    ",\"samples\":" + std::to_string(status.sensorSamples) + ",\"failures\":" + std::to_string(status.sensorFailures) +
+    ",\"consecutiveFailures\":" + std::to_string(status.sensorConsecutiveFailures) +
+    ",\"recoveries\":" + std::to_string(status.sensorRecoveries) + "}";
   result += ",\"mqttState\":" + jsonQuote(status.mqttState) +
     ",\"messageId\":" + std::to_string(status.messageId) +
     ",\"messageCount\":" + std::to_string(status.messageCount) +
@@ -209,6 +223,21 @@ std::string ConfigPortal::stateJson() {
   result += ",\"rotation\":{\"pages\":" + std::to_string(rotation.pages) +
     ",\"hold\":" + std::to_string(rotation.holdSeconds) + "},\"contentPage\":" + jsonQuote(status.contentPage) +
     ",\"rotationPaused\":" + (status.rotationPaused ? "true" : "false");
+  result += ",\"weather\":" + weatherPublicJson(weather);
+  const auto& outdoor = status.outdoor;
+  char values[160];
+  std::snprintf(values, sizeof(values), ",\"temperature\":%.1f,\"humidity\":", outdoor.temperature);
+  result += ",\"outdoor\":{\"state\":" + jsonQuote(status.weatherState) +
+    ",\"httpStatus\":" + std::to_string(status.weatherHttpStatus) +
+    ",\"fresh\":" + (outdoor.fresh(millis()) ? "true" : "false") +
+    ",\"city\":" + jsonQuote(outdoor.city) + ",\"text\":" + jsonQuote(outdoor.text) +
+    ",\"updated\":" + jsonQuote(outdoor.updated);
+  if (outdoor.valid) result += values;
+  else result += ",\"temperature\":null,\"humidity\":";
+  if (outdoor.valid && outdoor.humidityValid) {
+    std::snprintf(values, sizeof(values), "%.1f", outdoor.humidity); result += values;
+  } else result += "null";
+  result += "}";
   return result + "}";
 }
 esp_err_t ConfigPortal::handle(httpd_req_t* request) {
@@ -225,6 +254,7 @@ esp_err_t ConfigPortal::handle(httpd_req_t* request) {
   if (std::strcmp(request->uri, "/api/messages/ack") == 0) return acknowledgeMessage(request);
   if (std::strcmp(request->uri, "/api/mqtt") == 0) return updateMqtt(request);
   if (std::strcmp(request->uri, "/api/rotation") == 0) return updateRotation(request);
+  if (std::strcmp(request->uri, "/api/weather") == 0) return updateWeather(request);
   return update(request);
 }
 bool ConfigPortal::receiveForm(httpd_req_t* request, std::string& body, size_t maximum) {
@@ -284,6 +314,25 @@ esp_err_t ConfigPortal::updateRotation(httpd_req_t* request) {
   }
   xSemaphoreGive(writer_);
   if (!saved) return error(request, "503 Service Unavailable", "保存失败，当前轮播配置未改变。");
+  return send(request, "application/json; charset=utf-8", "{\"ok\":true}");
+}
+esp_err_t ConfigPortal::updateWeather(httpd_req_t* request) {
+  std::string body;
+  if (!receiveForm(request, body, 1024)) return ESP_OK;
+  WeatherInput input;
+  if (!parseWeatherForm(body, input)) return error(request, "400 Bad Request", "天气字段缺失、重复或编码错误。");
+  if (xSemaphoreTake(writer_, pdMS_TO_TICKS(1000)) != pdTRUE) return error(request, "503 Service Unavailable", "配置正忙，请重试。");
+  WeatherSettings next;
+  const char* validation = applyWeather(weatherSettings(), input, next);
+  bool saved = false;
+  if (!validation && storageReady_) {
+    const auto record = encodeWeather(next);
+    saved = storage_.putBytes("weather", record.data(), record.size()) == record.size();
+    if (saved) { portENTER_CRITICAL(&mux_); weatherSettings_ = next; portEXIT_CRITICAL(&mux_); }
+  }
+  xSemaphoreGive(writer_);
+  if (validation) return error(request, "400 Bad Request", "请核对城市、公私钥操作和 5–60 分钟刷新间隔；启用时城市及两项密钥不能为空。");
+  if (!saved) return error(request, "503 Service Unavailable", "保存失败，天气配置未改变。");
   return send(request, "application/json; charset=utf-8", "{\"ok\":true}");
 }
 esp_err_t ConfigPortal::updateMqtt(httpd_req_t* request) {

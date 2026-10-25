@@ -7,7 +7,7 @@
 using namespace clockapp;
 std::string row(const Frame& frame, size_t line) { return std::string(frame.lines[line].data(), 20); }
 void settings() {
-  RotationSettings settings{15, 120}, decoded;
+  RotationSettings settings{14, 120}, decoded;
   const auto record = encodeRotation(settings);
   assert(decodeRotation(record, decoded) && sameRotation(settings, decoded));
   for (size_t i = 0; i < record.size(); ++i) {
@@ -16,12 +16,13 @@ void settings() {
     assert(!decodeRotation(corrupt, decoded) && sameRotation(decoded, settings));
   }
   auto bad = encodeRotation({0, 8}); assert(!decodeRotation(bad, decoded));
-  bad = encodeRotation({16, 8}); assert(!decodeRotation(bad, decoded));
+  bad = encodeRotation({128, 8}); assert(!decodeRotation(bad, decoded));
   bad = encodeRotation({1, 4}); assert(!decodeRotation(bad, decoded));
   bad = encodeRotation({1, 121}); assert(!decodeRotation(bad, decoded));
-  assert(parseRotationForm("hold=5&pages=1", decoded) && decoded.pages == 1 && decoded.holdSeconds == 5);
+  assert(parseRotationForm("hold=5&pages=1", decoded) && decoded.pages == 2 && decoded.holdSeconds == 5);
   assert(parseRotationForm("pages=15&hold=120", decoded));
-  for (const char* input : {"pages=0&hold=8", "pages=16&hold=8", "pages=1&hold=4", "pages=1&hold=121", "pages=1",
+  assert(parseRotationForm("pages=63&hold=15", decoded) && decoded.pages == 62);
+  for (const char* input : {"pages=0&hold=8", "pages=128&hold=8", "pages=1&hold=4", "pages=1&hold=121", "pages=1",
       "pages=1&hold=8&pages=2", "pages=1&hold=8&extra=1", "pages=1&hold=8&", "pages=%00&hold=8", "pages=%XX&hold=8"}) {
     decoded = settings;
     assert(!parseRotationForm(input, decoded) && sameRotation(decoded, settings));
@@ -29,34 +30,27 @@ void settings() {
 }
 void policy() {
   ContentRotation rotation;
-  rotation.configure({15, 5});
-  assert(rotation.page() == ContentPage::date && rotation.key() == 3);
-  rotation.tick(100000, true, false); // not yet on screen: do not consume hold
+  rotation.configure({15, 5}); // old date bit is removed without renumbering other pages
+  assert(rotation.page() == ContentPage::indoor && rotation.key() == 4);
+  rotation.tick(100000, true, false);
   rotation.tick(200000, true, true);
-  rotation.tick(204999, true, false); // UART update after first visibility does not reset reading time
-  assert(rotation.page() == ContentPage::date);
-  rotation.tick(205000, true, true);
+  rotation.tick(204999, true, false);
   assert(rotation.page() == ContentPage::indoor);
-  rotation.tick(300000, true, false); assert(rotation.page() == ContentPage::indoor);
-  rotation.tick(300100, true, true);
-  rotation.tick(301000, false, false); // message/setup/sleep all use this gate
-  rotation.tick(400000, false, false); assert(rotation.page() == ContentPage::indoor);
-  rotation.tick(400100, true, false); // resume transition must finish first
-  rotation.tick(400500, true, true);
-  rotation.tick(405499, true, true); assert(rotation.page() == ContentPage::indoor);
-  rotation.tick(405500, true, true); assert(rotation.page() == ContentPage::temperature);
-  rotation.tick(405501, true, true); rotation.tick(410501, true, true);
+  rotation.tick(205000, true, true);
+  assert(rotation.page() == ContentPage::temperature);
+  rotation.tick(205001, false, false);
+  rotation.tick(300000, true, true);
+  rotation.tick(304999, true, true);
+  assert(rotation.page() == ContentPage::temperature);
+  rotation.tick(305000, true, true);
   assert(rotation.page() == ContentPage::humidity);
-  rotation.tick(410502, true, true); rotation.tick(415502, true, true);
-  assert(rotation.page() == ContentPage::date);
-  rotation.configure({8, 5}); assert(rotation.page() == ContentPage::humidity && rotation.key() == 6);
+  rotation.tick(305001, true, true); rotation.tick(310001, true, true);
+  assert(rotation.page() == ContentPage::indoor);
+  rotation.configure({1, 5}); // date-only legacy configuration falls back to indoor
+  assert(rotation.page() == ContentPage::indoor);
   rotation.tick(0xfffffff0u, true, true); rotation.tick(0x00001378u, true, true);
-  assert(rotation.page() == ContentPage::humidity); // single selected page stays fixed across rollover
-  rotation.configure({5, 5});
-  rotation.tick(0xfffffff0u, true, true); rotation.tick(0x00001377u, true, true);
-  assert(rotation.page() == ContentPage::date);
-  rotation.tick(0x00001378u, true, true); assert(rotation.page() == ContentPage::temperature);
-  rotation.configure({0, 8}); assert(rotation.page() == ContentPage::temperature); // invalid edit ignored
+  assert(rotation.page() == ContentPage::indoor);
+  rotation.configure({0, 8}); assert(rotation.page() == ContentPage::indoor);
 }
 void pages() {
   tm local{}; local.tm_year = 126; local.tm_mon = 9; local.tm_mday = 21; local.tm_wday = 3;
@@ -65,7 +59,7 @@ void pages() {
   const auto date = renderContent(ContentPage::date, &local, environment, true, true, 100);
   assert(row(date, 1) == "2026-10-21 WED      ");
   auto temperature = renderContent(ContentPage::temperature, &local, environment, true, false, 100);
-  assert(row(temperature, 1).find("TEMP: -5.2C") == 0 && temperature.lines[0][19] == '!');
+  assert(row(temperature, 1).find("TEMP: -5.2C") == 0 && temperature.lines[0][7] == '!');
   assert(date.lines[0][0] == temperature.lines[0][0]);
   const auto stale = renderContent(ContentPage::humidity, &local, environment, true, true, 15100);
   assert(row(stale, 1).find("HUMIDITY: 51.2%") == 0 && stale.lines[1][19] == '*');
@@ -108,7 +102,7 @@ void composition() {
       if (now - resumedAt < 5000) assert(rotation.page() == ContentPage::indoor);
     }
   }
-  assert(confirmed && resumedAt && rotation.page() == ContentPage::date);
+  assert(confirmed && resumedAt && rotation.page() == ContentPage::indoor);
 }
 int main() {
   settings(); policy(); pages(); composition();

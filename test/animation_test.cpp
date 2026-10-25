@@ -99,6 +99,52 @@ void animationLogic() {
   }
 }
 
+void terminalEffects() {
+  const auto old = page("10-21 12:34:59", "ABCDEFGHIJ0123456789");
+  CellFrame next = page("10-21 12:35:00", "new page");
+  assert(next.setEncoded(1, "\xd6\xd0\xce\xc4"));
+  Animator animator; animator.committed(old);
+  animator.start(Effect::terminalSlide, next, 100, 640, 2);
+  assert(animator.sample(100).rows[1] == old.rows[1]);
+  assert(animator.sample(420).rows[1][0] == old.rows[1][11]);
+  assert(animator.sample(740) == next);
+  for (uint32_t now = 100; now < 740; now += 20) {
+    const auto frame = animator.sample(now);
+    assert(frame.rows[0] == next.rows[0]);
+    for (const auto& cell : frame.rows[1])
+      assert(!cell.second() || (cell.first() >= 0xa1 && cell.second() >= 0xa1));
+  }
+  animator.start(Effect::messageEntry, next, 0, 900, 2);
+  assert(animator.sample(400).rows[1][3] == Cell::ascii('>'));
+  assert(animator.sample(450).rows[1][0] == Cell::ascii('>'));
+  assert(animator.sample(899).rows[0] == next.rows[0]);
+  assert(animator.sample(900) == next);
+  animator.committed(old); animator.start(Effect::collapse, {}, 0, 480);
+  assert(animator.sample(0) == old);
+  const auto collapsed = animator.sample(120);
+  assert(collapsed.rows[1][0] == Cell{});
+  assert(collapsed.rows[1][5] == old.rows[1][0]);
+  assert(collapsed.rows[0] == old.rows[0]);
+  assert(animator.sample(480) == CellFrame{});
+
+  Port port; DisplayService<Port> screen(port, Motion::standard);
+  screen.page(old, 3, 0); screen.begin(2);
+  for (uint32_t now = 0; now <= 1600; now += 40) tick(screen, port, now);
+  screen.page(next, 16, 1700);
+  tick(screen, port, 2100); port.drain();
+  assert(!screen.pageVisible(16, 2100)); // banner must never enable acknowledgement
+  tick(screen, port, 2600); port.drain();
+  assert(screen.pageVisible(16, 2600));
+  auto nextSecond = next; nextSecond.setAscii(0, "10-21 12:35:01");
+  screen.page(nextSecond, 16, 2700); tick(screen, port, 2700);
+  screen.page(nextSecond, 16, 2800); // normal refresh keeps the real time immediately readable
+  tick(screen, port, 2820); port.drain();
+  assert(screen.visible().rows[0][13] == Cell::ascii('1'));
+  assert(screen.pageVisible(16, 2820)); // static seconds do not block ACK
+  tick(screen, port, 2940); port.drain();
+  assert(screen.visible() == nextSecond);
+}
+
 void sleepAndWake() {
   Port port; DisplayService<Port> screen(port, Motion::off, 100);
   const auto first = page("12:34:56", "T:24.6C RH:51.2%");
@@ -155,22 +201,22 @@ void bootInterruptAndBackpressure() {
   assert(!screen.pageVisible(0, 1320)); port.drain(); assert(screen.pageVisible(0, 1321));
   screen.sleep(1400); tick(screen, port, 1500);
   assert(screen.visible().rows[0] == content.rows[0]);
-  screen.wake(1550); tick(screen, port, 1600); tick(screen, port, 1800);
+  screen.wake(1550); tick(screen, port, 1600); tick(screen, port, 1950);
   assert(screen.visible() == content && port.powerOffs() == 0);
   const auto next = page("12:34:57", "weather");
-  screen.page(next, 1, 1900);
-  assert(!screen.pageVisible(1, 1900));
+  screen.page(next, 1, 2000);
+  assert(!screen.pageVisible(1, 2000));
   // Emulate a stalled UART: advancing time must not queue stale frames.
   port.busy = true;
-  const auto before = port.packets.size(); screen.tick(2000); screen.tick(2100);
+  const auto before = port.packets.size(); screen.tick(2010); screen.tick(2100);
   assert(port.packets.size() == before);
   auto newest = next; newest.setAscii(1, "weather updated");
   screen.page(newest, 1, 2200);
-  tick(screen, port, 2400);
+  tick(screen, port, 2700);
   assert(screen.visible() == newest && port.packets.size() == before + 1);
-  assert(!screen.pageVisible(1, 2400)); port.drain(); assert(screen.pageVisible(1, 2401));
+  assert(!screen.pageVisible(1, 2700)); port.drain(); assert(screen.pageVisible(1, 2701));
 }
 int main() {
-  glyphAndProtocol(); animationLogic(); sleepAndWake(); serviceRollover(); bootInterruptAndBackpressure();
+  glyphAndProtocol(); animationLogic(); terminalEffects(); sleepAndWake(); serviceRollover(); bootInterruptAndBackpressure();
   std::cout << "PASS: glyph boundaries, protocol zeros, animation coalescing/interruption, boot, sleep drain, wake repaint, UART backpressure\n";
 }

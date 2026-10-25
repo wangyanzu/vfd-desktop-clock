@@ -8,8 +8,8 @@
 #define CLOCK_I2C_SCL 5
 // VFD transmit GPIO from the original working sketch. Receive is unused.
 #define CLOCK_VFD_TX 0
-// Do not enable a button until its wiring is confirmed.
-#define CLOCK_BUTTON_PIN -1
+// Manual sleep/wake: momentary button between GPIO3 and GND. -1 disables it.
+#define CLOCK_BUTTON_PIN 3
 
 // 0=off, 1=reduced, 2=standard. These do not affect business behavior.
 #define CLOCK_ANIMATION_LEVEL 2

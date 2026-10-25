@@ -79,4 +79,18 @@ struct CellFrame {
   bool operator==(const CellFrame& other) const { return rows == other.rows; }
   bool operator!=(const CellFrame& other) const { return !(*this == other); }
 };
+inline CellFrame centeredFrame(const CellFrame& source, int offset=0) {
+  CellFrame result;
+  for (size_t row=0;row<2;++row) {
+    size_t first=0,last=CellFrame::columns;
+    while (first<last && source.rows[row][first]==Cell{}) ++first;
+    while (last>first && source.rows[row][last-1]==Cell{}) --last;
+    const size_t padding=CellFrame::columns-(last-first);
+    const int centre=int(padding/2);
+    const int requested=centre+offset;
+    const size_t start=size_t(requested<0?0:requested>int(padding)?padding:requested);
+    for (size_t i=first;i<last;++i) result.rows[row][start+i-first]=source.rows[row][i];
+  }
+  return result;
+}
 }

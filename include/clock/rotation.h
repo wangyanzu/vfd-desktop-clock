@@ -3,7 +3,7 @@
 #include "clock/settings.h"
 
 namespace clockapp {
-enum class ContentPage : uint8_t { date, indoor, temperature, humidity };
+enum class ContentPage : uint8_t { date, indoor, temperature, humidity, outdoor, comparison };
 inline constexpr uint8_t contentPageBit(ContentPage page) { return 1u << static_cast<unsigned>(page); }
 inline const char* contentPageName(ContentPage page) {
   switch (page) {
@@ -11,15 +11,22 @@ inline const char* contentPageName(ContentPage page) {
     case ContentPage::indoor: return "indoor";
     case ContentPage::temperature: return "temperature";
     case ContentPage::humidity: return "humidity";
+    case ContentPage::outdoor: return "outdoor";
+    case ContentPage::comparison: return "comparison";
   }
   return "date";
 }
 struct RotationSettings {
-  uint8_t pages = contentPageBit(ContentPage::date) | contentPageBit(ContentPage::indoor);
+  uint8_t pages = contentPageBit(ContentPage::indoor);
   uint16_t holdSeconds = 8;
 };
+inline RotationSettings withoutDatePage(RotationSettings settings) {
+  settings.pages &= 62;
+  if (!settings.pages) settings.pages = contentPageBit(ContentPage::indoor);
+  return settings;
+}
 inline bool validRotationSettings(const RotationSettings& settings) {
-  return settings.pages >= 1 && settings.pages <= 15 && settings.holdSeconds >= 5 && settings.holdSeconds <= 120;
+  return settings.pages >= 1 && settings.pages <= 63 && settings.holdSeconds >= 5 && settings.holdSeconds <= 120;
 }
 inline bool sameRotation(const RotationSettings& a, const RotationSettings& b) {
   return a.pages == b.pages && a.holdSeconds == b.holdSeconds;
@@ -39,7 +46,7 @@ inline bool decodeRotation(const RotationRecord& record, RotationSettings& desti
   if (checksum != crc32(record.data(), 7)) return false;
   const RotationSettings next{record[4], static_cast<uint16_t>(record[5] | (uint16_t(record[6]) << 8))};
   if (!validRotationSettings(next)) return false;
-  destination = next;
+  destination = withoutDatePage(next);
   return true;
 }
 inline bool parseRotationForm(std::string_view body, RotationSettings& destination) {
@@ -54,7 +61,7 @@ inline bool parseRotationForm(std::string_view body, RotationSettings& destinati
     std::string key, value;
     if (!decodeFormValue(part.substr(0, equal), key) || !decodeFormValue(part.substr(equal + 1), value)) return false;
     if (key == "pages" && !(seen & 1)) {
-      if (!parseInteger(value, 1, 15, pages)) return false;
+      if (!parseInteger(value, 1, 63, pages)) return false;
       seen |= 1;
     } else if (key == "hold" && !(seen & 2)) {
       if (!parseInteger(value, 5, 120, hold)) return false;
@@ -65,13 +72,15 @@ inline bool parseRotationForm(std::string_view body, RotationSettings& destinati
     if (body.empty()) return false;
   }
   if (seen != 3) return false;
-  destination = {static_cast<uint8_t>(pages), static_cast<uint16_t>(hold)};
+  destination = withoutDatePage({static_cast<uint8_t>(pages), static_cast<uint16_t>(hold)});
   return true;
 }
 
 class ContentRotation {
  public:
-  void configure(const RotationSettings& settings) {
+  void configure(RotationSettings settings) {
+    if (!validRotationSettings(settings)) return;
+    settings = withoutDatePage(settings);
     if (!validRotationSettings(settings) || sameRotation(settings_, settings)) return;
     settings_ = settings;
     current_ = firstPage();
@@ -86,8 +95,8 @@ class ContentRotation {
       timing_ = true;
     }
     if (!elapsed(now, shownAt_, uint32_t(settings_.holdSeconds) * 1000)) return;
-    for (unsigned step = 1; step <= 4; ++step) {
-      const auto candidate = static_cast<ContentPage>((static_cast<unsigned>(current_) + step) % 4);
+    for (unsigned step = 1; step <= 6; ++step) {
+      const auto candidate = static_cast<ContentPage>((static_cast<unsigned>(current_) + step) % 6);
       if (settings_.pages & contentPageBit(candidate)) {
         current_ = candidate;
         timing_ = false;
@@ -100,12 +109,12 @@ class ContentRotation {
   uint32_t key() const { return 3 + static_cast<unsigned>(current_); }
  private:
   ContentPage firstPage() const {
-    for (unsigned i = 0; i < 4; ++i)
+    for (unsigned i = 0; i < 6; ++i)
       if (settings_.pages & (1u << i)) return static_cast<ContentPage>(i);
     return ContentPage::date;
   }
   RotationSettings settings_{};
-  ContentPage current_ = ContentPage::date;
+  ContentPage current_ = ContentPage::indoor;
   uint32_t shownAt_ = 0;
   bool timing_ = false;
 };

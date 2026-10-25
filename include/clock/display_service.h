@@ -8,19 +8,24 @@ namespace clockapp {
 template <class Port> class DisplayService {
  public:
   enum class State { boot, awake, closing, asleep, waking };
-  explicit DisplayService(Port& port, Motion motion = Motion::standard, uint32_t wakeSettleMs = 100)
-      : port_(port), driver_(port), motion_(motion), wakeSettleMs_(wakeSettleMs) {}
+  explicit DisplayService(Port& port, Motion motion = Motion::standard, uint32_t wakeSettleMs = 100, bool centerContent = false)
+      : port_(port), driver_(port), motion_(motion), wakeSettleMs_(wakeSettleMs), centerContent_(centerContent) {}
   bool begin(uint8_t brightness) {
     if (brightness < 1 || brightness > 4) return false;
     desiredBrightness_ = brightness; enabled_ = true;
     return true;
   }
   void brightness(uint8_t value) { if (value >= 1 && value <= 4) desiredBrightness_ = value; }
-  void page(const CellFrame& frame, uint32_t key, uint32_t now, bool firstContent = false, uint8_t transitionRows = 2) {
+  void page(const CellFrame& frame, uint32_t key, uint32_t now, bool firstContent = false, uint8_t transitionRows = 2, int8_t offset = 0) {
     const bool changed = hasPage_ && key != pageKey_;
-    latest_ = frame; pageKey_ = key; hasPage_ = true;
+    latest_ = centerContent_ ? centeredFrame(frame, offset) : frame; pageKey_ = key; hasPage_ = true;
     if (!initialized_ || state_ != State::awake) return;
-    if (changed) { animator_.start(Effect::pushLeft, latest_, now, duration(400, 160), transitionRows); haveSent_ = false; }
+    if (changed) {
+      const bool message = key >= 16;
+      const Effect effect = motion_ == Motion::standard ? (message ? Effect::messageEntry : Effect::terminalSlide) : Effect::pushLeft;
+      animator_.start(effect, latest_, now, duration(message ? 900 : 640, 160), message ? 2 : transitionRows);
+      haveSent_ = false;
+    }
     else if (firstContent && !animator_.active(now)) animator_.start(Effect::revealFields, latest_, now, duration(320, 120), 2);
     else animator_.target(latest_); // coalesce data; never restart the timeline
   }
@@ -28,14 +33,14 @@ template <class Port> class DisplayService {
     if (!initialized_ || state_ == State::closing || state_ == State::asleep) return;
     if (state_ == State::waking && !wakeSent_) { state_ = State::asleep; return; }
     state_ = State::closing; haveSent_ = false;
-    animator_.start(Effect::sleep, CellFrame{}, now, duration(400, 160));
+    animator_.start(Effect::collapse, CellFrame{}, now, duration(480, 160));
   }
   void wake(uint32_t now) {
     if (!initialized_) return;
     if (state_ == State::asleep) { state_ = State::waking; wakeSent_ = false; wakeDrained_ = false; }
     else if (state_ == State::closing) {
       state_ = State::awake; haveSent_ = false;
-      animator_.start(Effect::reveal, latest_, now, duration(200, 80), 2);
+      animator_.start(Effect::centerReveal, latest_, now, duration(400, 80));
     }
   }
   State state() const { return state_; }
@@ -60,7 +65,7 @@ template <class Port> class DisplayService {
         CellFrame title;
         title.setAscii(0, "     VFD CLOCK");
         title.setAscii(1, "    A LITTLE TIME");
-        animator_.start(Effect::centerReveal, title, now, duration(800, 200));
+        animator_.start(Effect::centerReveal, centerContent_ ? centeredFrame(title) : title, now, duration(800, 200));
       }
       return;
     }
@@ -78,7 +83,7 @@ template <class Port> class DisplayService {
       if (!wakeDrained_) { wakeDrained_ = true; sceneAt_ = now; }
       if (!elapsed(now, sceneAt_, wakeSettleMs_)) return;
       state_ = State::awake;
-      animator_.start(Effect::reveal, latest_, now, duration(200, 80), 2);
+      animator_.start(Effect::centerReveal, latest_, now, duration(400, 80));
       haveSent_ = false; // show current time on the first waking frame
     }
     if (desiredBrightness_ != appliedBrightness_) {
@@ -94,8 +99,8 @@ template <class Port> class DisplayService {
       if (driver_.setPower(false)) state_ = State::asleep;
       return;
     }
-    if (haveSent_ && !elapsed(now, sentAt_, 100)) return;
-    const CellFrame next = animator_.sample(now);
+    if (haveSent_ && !elapsed(now, sentAt_, motion_ == Motion::standard ? 40 : 100)) return;
+    CellFrame next = animator_.sample(now);
     if (!driver_.show(next)) return;
     animator_.committed(next); sentAt_ = now; haveSent_ = true;
     if (state_ == State::awake && !animator_.active(now)) { visiblePageKey_ = pageKey_; hasVisiblePage_ = true; }
@@ -112,6 +117,7 @@ template <class Port> class DisplayService {
   State state_ = State::boot;
   uint32_t wakeSettleMs_, sceneAt_ = 0, sentAt_ = 0, pageKey_ = 0, visiblePageKey_ = 0;
   uint8_t desiredBrightness_ = 2, appliedBrightness_ = 2;
+  bool centerContent_ = false;
   bool hasVisiblePage_ = false;
   bool enabled_ = false, initialized_ = false, haveSent_ = false, hasPage_ = false, wakeSent_ = false, wakeDrained_ = false;
 };

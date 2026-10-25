@@ -18,7 +18,7 @@
 #define CLOCK_VFD_TX 0
 #endif
 #ifndef CLOCK_BUTTON_PIN
-#define CLOCK_BUTTON_PIN -1
+#define CLOCK_BUTTON_PIN 3
 #endif
 
 #ifndef CLOCK_ANIMATION_LEVEL

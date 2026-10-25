@@ -41,9 +41,12 @@ inline Frame render(const tm* localTime, const Environment& environment,
   Frame frame;
   char buffer[48];
   if (localTime) {
-    std::strftime(buffer, sizeof(buffer), "%m-%d %H:%M:%S", localTime);
+    std::strftime(buffer, sizeof(buffer), "%Y-%m %H:%M:%S", localTime);
+    const char* weekdays[] = {"SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
+    const int day = localTime->tm_wday;
+    std::snprintf(buffer + 16, sizeof(buffer) - 16, " %s", day >= 0 && day < 7 ? weekdays[day] : "---");
     frame.set(0, buffer);
-    frame.lines[0][19] = connected ? ' ' : '!';
+    if (!connected) frame.lines[0][7] = '!';
   } else {
     frame.set(0, connected ? "Syncing time..." : "WiFi offline");
   }

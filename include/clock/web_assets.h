@@ -9,7 +9,7 @@ inline constexpr char index[] = R"VFDWEB(<!doctype html>
   <header><a class="brand" href="/">VFD<span>DESKTOP CLOCK / 01</span></a><span class="tag">设备设置</span></header>
   <section class="overview" aria-labelledby="title">
     <div class="intro"><p class="eyebrow">YOUR EVERYDAY INSTRUMENT</p><h1 id="title">把时间，<br>调到刚刚好。</h1><p class="description">连接网络，选择舒适的亮度。<br>设置保存在时钟里，重启后依然生效。</p><p id="connection" class="connection" role="status">正在读取设备状态…</p></div>
-    <div class="instrument" aria-label="设备实时状态"><div class="instrument-top"><span>LIVE / DEVICE</span><span id="network-label">读取中</span></div><p id="clock" class="clock">--:--:--</p><div class="readings"><span>室温 <strong id="temperature">—</strong></span><span>湿度 <strong id="humidity">—</strong></span></div><p id="sensor-note" class="instrument-note">等待传感器数据</p><div class="instrument-bottom"><span id="address">IP —</span><span id="uptime">运行 —</span></div></div>
+    <div class="instrument" aria-label="设备实时状态"><div class="instrument-top"><span>LIVE / DEVICE</span><span id="network-label">读取中</span></div><p id="clock" class="clock">--:--:--</p><div class="readings"><span>室内温度 <strong id="temperature">—</strong></span><span>湿度 <strong id="humidity">—</strong></span></div><p id="sensor-note" class="instrument-note">室内 · AHT10 传感器</p><div class="instrument-bottom"><span id="address">IP —</span><span id="uptime">运行 —</span></div></div>
   </section>
   <section class="message-panel" aria-labelledby="messages-title"><div><p class="eyebrow">INBOX / DEVICE</p><h2 id="messages-title">消息收件箱</h2><p id="mqtt-status" role="status">正在读取消息状态…</p><small id="message-status">等待设备响应</small></div><div class="message-actions"><button type="button" id="ack-message" disabled>确认屏幕当前消息</button><p id="ack-result" role="status" aria-live="polite"></p></div></section>
   <form id="settings" autocomplete="off">
@@ -17,8 +17,8 @@ inline constexpr char index[] = R"VFDWEB(<!doctype html>
       <section class="setting-section" aria-labelledby="network-title"><div class="section-heading"><span class="number">01</span><div><h2 id="network-title">连接网络</h2><p>使用 2.4 GHz Wi-Fi。更换网络后，连接可能短暂中断。</p></div></div>
         <div class="inputs"><div class="field"><label for="ssid">Wi-Fi 名称</label><input id="ssid" name="ssid" maxlength="32" required autocomplete="off" placeholder="输入网络名称"><small>最多 32 字节，中文通常每字占 3 字节。</small></div><div class="field"><label for="password-mode">密码操作</label><select id="password-mode" name="password_mode"><option value="replace">填写新密码</option><option value="keep">保留已保存的密码</option><option value="open">连接无密码的开放网络</option></select></div><div class="field wide" id="password-field"><label for="password">Wi-Fi 密码</label><div class="password-input"><input id="password" type="password" name="password" maxlength="64" autocomplete="new-password"><button type="button" id="toggle-password" aria-controls="password" aria-pressed="false">显示</button></div><small>8–63 个 ASCII 字符，或 64 位十六进制密钥。保存后不回显。</small></div></div>
       </section>
-      <section class="setting-section" aria-labelledby="display-title"><div class="section-heading"><span class="number">02</span><div><h2 id="display-title">显示与时间</h2><p>亮度与校时设置会自动应用，无需重启。</p></div></div>
-        <div class="inputs"><div class="field"><label for="brightness">屏幕亮度</label><select id="brightness" name="brightness"><option value="1">25% · 柔和</option><option value="2">50% · 日常</option><option value="3">75% · 明亮</option><option value="4">100% · 最亮</option></select></div><div class="field"><label for="offset">UTC 偏移（分钟）</label><input id="offset" name="offset" type="number" min="-720" max="840" step="1" value="480" required><small>中国标准时间为 480；UTC 为 0，不自动切换夏令时。</small></div><div class="field wide"><label for="ntp">网络校时服务器</label><input id="ntp" name="ntp" maxlength="63" value="ntp.aliyun.com" required spellcheck="false" autocapitalize="none"><small>填写主机名或 IPv4 地址，例如 ntp.aliyun.com。</small></div></div>
+      <section class="setting-section" aria-labelledby="display-title"><div class="section-heading"><span class="number">02</span><div><h2 id="display-title">显示与时间</h2><p>上电 / 唤醒时 100% 高亮，60 秒后调暗，30 分钟后自动休眠。按钮可唤醒；校时设置自动应用。</p></div></div>
+        <div class="inputs"><div class="field"><label for="brightness">60 秒后的常态亮度</label><select id="brightness" name="brightness"><option value="1">25% · 柔和</option><option value="2">50% · 日常</option><option value="3">75% · 明亮</option></select></div><div class="field"><label for="offset">UTC 偏移（分钟）</label><input id="offset" name="offset" type="number" min="-720" max="840" step="1" value="480" required><small>中国标准时间为 480；UTC 为 0，不自动切换夏令时。</small></div><div class="field wide"><label for="ntp">网络校时服务器</label><input id="ntp" name="ntp" maxlength="63" value="ntp.aliyun.com" required spellcheck="false" autocapitalize="none"><small>填写主机名或 IPv4 地址，例如 ntp.aliyun.com。</small></div></div>
       </section>
       <div class="save-bar"><p id="result" role="status" aria-live="polite">所有设置仅保存在这台设备。</p><button class="primary" type="submit" id="save">保存并应用 <span aria-hidden="true">↗</span></button></div>
     </fieldset>
@@ -49,10 +49,11 @@ inline constexpr char index[] = R"VFDWEB(<!doctype html>
       <section class="setting-section" aria-labelledby="rotation-title"><div class="section-heading"><span class="number">04</span><div><h2 id="rotation-title">内容轮播</h2><p>时间保持在第一行。第二行依次展示所选内容，消息、配网和睡眠期间暂停。</p></div></div>
         <div class="inputs">
           <div class="field wide"><p class="field-label" id="rotation-pages-label">显示内容</p><div class="page-options" role="group" aria-labelledby="rotation-pages-label">
-            <label class="page-option" for="page-date"><input type="checkbox" id="page-date" value="1"><span>日期与星期<small>2026-10-21 WED</small></span></label>
             <label class="page-option" for="page-indoor"><input type="checkbox" id="page-indoor" value="2"><span>室内温湿度<small>T:24.6C RH:51.2%</small></span></label>
             <label class="page-option" for="page-temperature"><input type="checkbox" id="page-temperature" value="4"><span>独立温度<small>TEMP: 24.6C</small></span></label>
             <label class="page-option" for="page-humidity"><input type="checkbox" id="page-humidity" value="8"><span>独立湿度<small>HUMIDITY: 51.2%</small></span></label>
+            <label class="page-option" for="page-outdoor"><input type="checkbox" id="page-outdoor" value="16"><span>室外天气<small>OUT:18.0C CLOUDY</small></span></label>
+            <label class="page-option" for="page-comparison"><input type="checkbox" id="page-comparison" value="32"><span>室内外对比<small>IN:25.6 OUT:18.0C</small></span></label>
           </div><small>至少选择一项，按上方顺序展示；只选一项时固定显示。示例用于说明版式，实机显示传感器读数。</small></div>
           <div class="field"><label for="rotation-hold">每页停留（秒）</label><input id="rotation-hold" type="number" min="5" max="120" step="1" value="8" required><small>5–120 秒，从页面完整显示后开始计时。</small></div>
           <div class="field"><p class="field-label">当前轮播</p><p id="rotation-status" role="status">正在读取设置…</p><small>消息确认或唤醒后，当前页重新获得完整停留时间。</small></div>
@@ -61,6 +62,26 @@ inline constexpr char index[] = R"VFDWEB(<!doctype html>
       <div class="save-bar"><p id="rotation-result" role="status" aria-live="polite">轮播设置独立保存，重启后保留。</p><button class="primary" type="submit" id="rotation-save">保存轮播设置 <span aria-hidden="true">↗</span></button></div>
     </fieldset>
   </form>
+  <section class="weather-overview" aria-labelledby="comparison-title">
+    <p class="eyebrow">INDOOR / OUTDOOR</p><h2 id="comparison-title">室内外，一眼看清</h2>
+    <div class="comparison-grid"><div><span>室内温度 · 传感器</span><strong id="indoor-comparison">—</strong><small id="indoor-comparison-humidity">湿度 —</small></div><div><span>室外温度 · 天气接口</span><strong id="outdoor-temperature">—</strong><small id="outdoor-comparison-humidity">湿度 —</small></div></div>
+    <p id="weather-status" role="status">天气未配置</p><p id="weather-observation">等待天气数据</p><small>并列显示室内外实测与天气数据；旧数据会标记，室内外湿度缺失时分别显示不可用。</small>
+  </section>
+  <form id="weather-settings"><fieldset id="weather-fields" disabled>
+    <section class="setting-section" aria-labelledby="weather-title"><div class="section-heading"><span class="number">05</span><div><h2 id="weather-title">心知天气</h2><p>填写城市和 V3 API 公私钥，设备获取室外实况。保存后可勾选轮播中的室内外对比。</p></div></div>
+      <div class="inputs">
+        <div class="field"><label for="weather-enabled">天气服务</label><select id="weather-enabled"><option value="0">关闭</option><option value="1">启用</option></select></div>
+        <div class="field"><label for="weather-location">城市 / 位置</label><input id="weather-location" maxlength="64" placeholder="例如 shanghai、北京或城市 ID" autocomplete="off"><small>支持城市名、拼音或心知城市 ID，最多 64 字节。</small></div>
+        <div class="field"><label for="weather-refresh">刷新间隔（分钟）</label><input id="weather-refresh" type="number" min="5" max="60" step="1" value="15" required><small>默认 15 分钟；失败后降低重试频率。</small></div>
+        <div class="field"><label for="weather-public-mode">公钥操作</label><select id="weather-public-mode"><option value="keep">保留已保存值</option><option value="replace">填写新值</option><option value="clear">清除</option></select><small id="weather-public-note">尚未读取</small></div>
+        <div class="field" id="weather-public-field"><label for="weather-public">公钥（uid）</label><input id="weather-public" type="password" maxlength="64" autocomplete="new-password" spellcheck="false" autocapitalize="none"></div>
+        <div class="field"><label for="weather-private-mode">私钥操作</label><select id="weather-private-mode"><option value="keep">保留已保存值</option><option value="replace">填写新值</option><option value="clear">清除</option></select><small id="weather-private-note">尚未读取</small></div>
+        <div class="field" id="weather-private-field"><label for="weather-private">私钥（key）</label><input id="weather-private" type="password" maxlength="64" autocomplete="new-password" spellcheck="false" autocapitalize="none"></div>
+        <small class="wide">公私钥保存后不回显。设备通过 HTTPS 签名请求天气，私钥不进入天气请求网址。免费接口可能不提供室外湿度；关屏休眠时暂停获取。</small>
+      </div>
+    </section>
+    <div class="save-bar"><p id="weather-result" role="status" aria-live="polite">天气配置独立保存，不改变 Wi-Fi、MQTT 或轮播选择。</p><button class="primary" type="submit" id="weather-save">保存天气设置 <span aria-hidden="true">↗</span></button></div>
+  </fieldset></form>
   <footer><span>VFD / LUATOS CORE-ESP32-C3</span><span>本地管理 · 无需外网资源</span></footer>
 </main>
 </body></html>
@@ -73,6 +94,7 @@ inline constexpr char style[] = R"VFDWEB(:root{--color-surface:#101715;--color-r
 .message-panel{border-top:1px solid var(--color-border);padding:var(--space-lg) 0;display:flex;justify-content:space-between;gap:var(--space-md)}.message-panel .eyebrow{margin-bottom:12px}.message-panel p{font-size:12px;color:var(--color-muted);margin:8px 0}.message-actions{align-self:center;max-width:360px}.message-actions button{background:var(--color-raised);color:var(--color-primary);border:1px solid var(--color-border);border-radius:2px;padding:12px 18px;font-size:13px;cursor:pointer}.message-actions button:disabled{opacity:.45;cursor:default}#ack-result.error{color:var(--color-error)}@media(max-width:740px){.message-panel{flex-direction:column}.message-actions{align-self:flex-start}}
 
 .field-label{font-size:13px;margin:0 0 10px}.page-options{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-sm)}.page-option{display:flex;align-items:flex-start;gap:12px;margin:0;padding:var(--space-sm);border:1px solid var(--color-border);background:var(--color-raised);cursor:pointer}.page-option input{width:18px;min-height:18px;height:18px;flex:0 0 18px;margin:3px 0 0;accent-color:var(--color-primary)}.page-option small{font-family:var(--type-mono);margin-top:4px}.page-option:has(input:checked){border-color:var(--color-primary)}#rotation-status{font-size:13px;color:var(--color-primary);margin:0}@media(max-width:540px){.page-options{grid-template-columns:1fr}}
+.weather-overview{border-top:1px solid var(--color-border);padding:var(--space-lg) 0}.comparison-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin:24px 0}.comparison-grid>div{background:var(--color-raised);border:1px solid var(--color-border);padding:20px}.comparison-grid span{display:block;color:var(--color-muted);font-size:12px}.comparison-grid strong{display:block;margin-top:12px;color:var(--color-primary);font:clamp(20px,3vw,32px)/1.3 var(--type-mono)}#weather-status,#weather-observation,#weather-result{font-size:12px;color:var(--color-muted)}#weather-result.error{color:var(--color-error)}#weather-result.success{color:var(--color-success)}@media(max-width:600px){.comparison-grid{grid-template-columns:1fr}.comparison-grid>div{display:flex;align-items:center;justify-content:space-between;gap:12px}.comparison-grid strong{margin-top:0}}
 )VFDWEB";
 inline constexpr char app[] = R"VFDWEB('use strict';
 (() => {
@@ -82,7 +104,8 @@ inline constexpr char app[] = R"VFDWEB('use strict';
   const result = byId('result');
   let csrf = '', loaded = false, saving = false, messageId = 0, ackBusy = false, mqttLoaded = false, mqttSaving = false, mqttWritable = false;
   let rotationLoaded = false, rotationSaving = false, rotationWritable = false;
-  const contentPages = ['date','indoor','temperature','humidity'];
+  const contentPages = ['indoor','temperature','humidity','outdoor','comparison'];
+  let weatherLoaded = false, weatherSaving = false, weatherWritable = false;
   const notice = (text, state = '') => { result.textContent = text; result.className = state; };
   async function request(path, options = {}) {
     const controller = new AbortController();
@@ -121,14 +144,15 @@ inline constexpr char app[] = R"VFDWEB('use strict';
   }
   function showState(state) {
     csrf = state.csrf;
+    showWeather(state);
     rotationWritable = Boolean(state.storageReady);
     if (!rotationLoaded && state.rotation) {
-      for (const [index, page] of contentPages.entries()) byId(`page-${page}`).checked = Boolean(state.rotation.pages & (1 << index));
+      for (const [index, page] of contentPages.entries()) byId(`page-${page}`).checked = Boolean(state.rotation.pages & (1 << (index + 1)));
       byId('rotation-hold').value = String(state.rotation.hold);
       rotationLoaded = true;
     }
     if (!rotationSaving) byId('rotation-fields').disabled = !rotationWritable || !rotationLoaded;
-    const pageLabels = {date:'日期与星期',indoor:'室内温湿度',temperature:'独立温度',humidity:'独立湿度'};
+    const pageLabels = {indoor:'室内温湿度',temperature:'独立温度',humidity:'独立湿度',outdoor:'室外天气',comparison:'室内外对比'};
     byId('rotation-status').textContent = `${pageLabels[state.contentPage] || '等待设备'}${state.rotationPaused ? ' · 已暂停' : ''}`;
     if (!mqttLoaded && state.mqtt) loadMqtt(state.mqtt);
     mqttWritable = Boolean(state.storageReady);
@@ -145,12 +169,16 @@ inline constexpr char app[] = R"VFDWEB('use strict';
     byId('temperature').textContent = state.temperature === null ? '—' : `${state.temperature.toFixed(1)}°C`;
     byId('humidity').textContent = state.humidity === null ? '—' : `${state.humidity.toFixed(1)}%`;
     byId('sensor-note').textContent = !state.sensorEnabled ? '温湿度传感器未启用' : state.temperature === null ? '等待 AHT10 首次有效读数' : state.sampleFresh ? 'AHT10 / 数据正常' : '读取暂不可用，显示最近有效数据';
+    if (state.sensorEnabled && state.sensor && state.sensor.error) {
+      const errors = {1:'I²C 写入失败',2:'状态读取失败',3:'校准失败',4:'测量忙超时',5:'测量读取失败',6:'传感器返回空测量帧',7:'测量值超范围',8:'I²C 总线恢复失败'};
+      byId('sensor-note').textContent = `${errors[state.sensor.error] || '传感器读取失败'} · 连续失败 ${Number(state.sensor.consecutiveFailures) || 0} 次 · 恢复尝试 ${Number(state.sensor.recoveries) || 0} 次${state.temperature === null ? ' · 暂无有效读数' : ' · 保留最近有效数据'}`;
+    }
     byId('address').textContent = `IP ${state.ip || '192.168.4.1（热点）'}`;
     const minutes = Math.floor(state.uptime / 60);
     byId('uptime').textContent = `运行 ${Math.floor(minutes / 60)}h ${minutes % 60}m`;
     if (!loaded) {
       byId('ssid').value = state.ssid;
-      byId('brightness').value = String(state.brightness);
+      byId('brightness').value = String(Math.min(3, state.brightness));
       byId('offset').value = String(state.offset);
       byId('ntp').value = state.ntp;
       byId('password-mode').value = state.ssid ? 'keep' : 'replace';
@@ -166,6 +194,7 @@ inline constexpr char app[] = R"VFDWEB('use strict';
       byId('network-label').textContent = 'UNREACHABLE';
       byId('ack-message').disabled = true; messageId = 0;
       byId('sensor-note').textContent = '连接中断，显示最近读取的状态';
+      byId('weather-status').textContent = '设备连接中断，天气数值为上次读取';
       if (!loaded) notice(error.message, 'error');
     } finally { setTimeout(poll, 3000); }
   }
@@ -245,7 +274,7 @@ inline constexpr char app[] = R"VFDWEB('use strict';
     const notify = (text, state = '') => { rotationResult.textContent = text; rotationResult.className = state; };
     if (rotationSaving || !rotationLoaded || !rotationForm.reportValidity()) return;
     let pages = 0;
-    for (const [index, page] of contentPages.entries()) if (byId(`page-${page}`).checked) pages |= 1 << index;
+    for (const [index, page] of contentPages.entries()) if (byId(`page-${page}`).checked) pages |= 1 << (index + 1);
     if (!pages) { notify('请至少选择一项显示内容。', 'error'); return; }
     const body = new URLSearchParams({pages:String(pages),hold:byId('rotation-hold').value});
     rotationSaving = true; byId('rotation-fields').disabled = true; byId('rotation-save').textContent = '正在保存…';
@@ -262,6 +291,61 @@ inline constexpr char app[] = R"VFDWEB('use strict';
       rotationSaving = false; byId('rotation-fields').disabled = !rotationWritable || !rotationLoaded;
       byId('rotation-save').textContent = '保存轮播设置 ↗';
     }
+  });
+  function weatherSecretMode(key) {
+    const replacing = byId(`weather-${key}-mode`).value === 'replace';
+    byId(`weather-${key}-field`).hidden = !replacing;
+    byId(`weather-${key}`).disabled = !replacing;
+    byId(`weather-${key}`).required = replacing;
+  }
+  function showWeather(state) {
+    weatherWritable = Boolean(state.storageReady);
+    if (!weatherLoaded && state.weather) {
+      const settings = state.weather;
+      byId('weather-enabled').value = settings.enabled ? '1' : '0';
+      byId('weather-location').value = settings.location;
+      byId('weather-refresh').value = String(settings.refreshMinutes);
+      for (const [key, set] of [['public',settings.publicKeySet],['private',settings.privateKeySet]]) {
+        byId(`weather-${key}`).value = '';
+        byId(`weather-${key}-mode`).value = set ? 'keep' : 'clear';
+        byId(`weather-${key}-note`).textContent = set ? '已保存，不回显。' : '尚未保存。';
+        weatherSecretMode(key);
+      }
+      weatherLoaded = true;
+    }
+    if (!weatherSaving) byId('weather-fields').disabled = !weatherWritable || !weatherLoaded;
+    const outdoor = state.outdoor || {};
+    const indoorValid = Number.isFinite(state.temperature), outdoorValid = Number.isFinite(outdoor.temperature);
+    byId('indoor-comparison').textContent = indoorValid ? `${state.temperature.toFixed(1)}°C${state.sampleFresh ? '' : ' · 旧'}` : '—';
+    byId('outdoor-temperature').textContent = outdoorValid ? `${outdoor.temperature.toFixed(1)}°C${outdoor.fresh ? '' : ' · 旧'}` : '—';
+    byId('indoor-comparison-humidity').textContent = Number.isFinite(state.humidity) ? `湿度 ${state.humidity.toFixed(1)}%` : '湿度不可用';
+    byId('outdoor-comparison-humidity').textContent = Number.isFinite(outdoor.humidity) ? `湿度 ${outdoor.humidity.toFixed(1)}%` : '湿度未提供';
+    const labels = {disabled:'天气未配置',waiting_wifi:'等待 Wi-Fi',waiting_time:'等待校时后签名请求',fetching:'正在更新天气',online:'天气已更新',retrying:'天气请求失败，稍后重试',invalid_response:'天气返回数据无效，请核对 V3 产品权限和城市',auth_error:'天气鉴权失败，请核对公私钥和产品权限',rate_limited:'访问频率受限，稍后重试',unavailable:'天气服务不可用'};
+    byId('weather-status').textContent = (labels[outdoor.state] || '天气未配置') + (outdoorValid && !outdoor.fresh ? ' · 数据已过期' : '');
+    const humidity = Number.isFinite(outdoor.humidity) ? `${outdoor.humidity.toFixed(1)}%` : '接口未提供';
+    byId('weather-observation').textContent = outdoorValid ? `${outdoor.city || ''} · ${outdoor.text || ''} · 室外湿度 ${humidity} · 观测时间 ${(outdoor.updated || '').replace('T',' ')}` : '等待天气数据';
+  }
+  for (const key of ['public','private']) byId(`weather-${key}-mode`).addEventListener('change', () => weatherSecretMode(key));
+  byId('weather-settings').addEventListener('submit', async event => {
+    event.preventDefault();
+    const form = byId('weather-settings'), result = byId('weather-result');
+    const notify = (text, state = '') => { result.textContent = text; result.className = state; };
+    if (weatherSaving || !weatherLoaded || !weatherWritable || !form.reportValidity()) return;
+    const values = {enabled:byId('weather-enabled').value, location:byId('weather-location').value.trim(), refresh:byId('weather-refresh').value};
+    for (const key of ['public','private']) {
+      const mode = byId(`weather-${key}-mode`).value;
+      values[`${key}_mode`] = mode;
+      values[`${key}_key`] = mode === 'replace' ? byId(`weather-${key}`).value.trim() : '';
+    }
+    if (new TextEncoder().encode(values.location).length > 64) { notify('城市最多 64 字节。','error'); return; }
+    weatherSaving = true; byId('weather-fields').disabled = true; byId('weather-save').textContent = '正在保存…';
+    try {
+      await request('/api/weather', {method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded','X-CSRF-Token':csrf},body:new URLSearchParams(values)});
+      byId('weather-public').value = ''; byId('weather-private').value = ''; weatherLoaded = false;
+      notify('已保存，设备将自动获取天气；请在轮播中选择室内外对比。','success');
+      try { showState(await request('/api/state')); } catch (_) { notify('已保存，稍后自动刷新状态。','success'); }
+    } catch (error) { notify(error.name === 'AbortError' ? '未收到保存结果，请刷新核对后重试。' : error.message,'error'); }
+    finally { weatherSaving = false; byId('weather-fields').disabled = !weatherWritable || !weatherLoaded; byId('weather-save').textContent = '保存天气设置 ↗'; }
   });
   poll();
 })();

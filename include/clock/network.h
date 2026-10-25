@@ -8,6 +8,7 @@ class NetworkManager {
  public:
   void begin(const Settings& settings, const char* accessKey, uint32_t now);
   void tick(const Settings& desired, uint32_t now);
+  void resume(const Settings& settings, uint32_t now);
   void requestSetup() { policy_.requestSetup(); }
   bool setupActive() const { return policy_.setupActive(); }
   bool connected() const { return WiFi.status() == WL_CONNECTED; }

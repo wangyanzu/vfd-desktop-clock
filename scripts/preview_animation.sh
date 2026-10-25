@@ -11,11 +11,11 @@ import sys
 from pathlib import Path
 raw = Path(sys.argv[1]).read_text()
 data = json.loads(raw)
-assert len(data) == 3 and all(len(scenes) == 9 for scenes in data.values())
+assert len(data) == 3 and all(len(scenes) == 10 for scenes in data.values())
 for scenes in data.values():
     for scene in scenes:
         assert all(len(row) == 20 for frame in scene['frames'] for row in frame['rows'])
 template = Path('scripts/animation_preview.html').read_text()
 Path('docs/animation-preview.html').write_text(template.replace('__ANIMATION_DATA__', raw.strip()))
-print('Generated docs/animation-preview.html (27 scene/motion combinations)')
+print('Generated docs/animation-preview.html (30 scene/motion combinations)')
 PY
