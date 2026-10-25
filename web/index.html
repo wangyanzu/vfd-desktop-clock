@@ -68,7 +68,7 @@
     <section class="setting-section" aria-labelledby="weather-title"><div class="section-heading"><span class="number">05</span><div><h2 id="weather-title">心知天气</h2><p>填写城市和 V3 API 公私钥，设备获取室外实况。保存后可勾选轮播中的室内外对比。</p></div></div>
       <div class="inputs">
         <div class="field"><label for="weather-enabled">天气服务</label><select id="weather-enabled"><option value="0">关闭</option><option value="1">启用</option></select></div>
-        <div class="field"><label for="weather-location">城市 / 位置</label><input id="weather-location" maxlength="64" placeholder="例如 shanghai、北京或城市 ID" autocomplete="off"><small>支持城市名、拼音或心知城市 ID，最多 64 字节。</small></div>
+        <div class="field"><label for="weather-location">城市 / 位置</label><input id="weather-location" maxlength="64" placeholder="例如 shanghai、北京或城市 ID" autocomplete="off"><small>支持城市名、拼音、城市 ID 或纬度:经度；区县名称无匹配时可用坐标，最多 64 字节。</small></div>
         <div class="field"><label for="weather-refresh">刷新间隔（分钟）</label><input id="weather-refresh" type="number" min="5" max="60" step="1" value="15" required><small>默认 15 分钟；失败后降低重试频率。</small></div>
         <div class="field"><label for="weather-public-mode">公钥操作</label><select id="weather-public-mode"><option value="keep">保留已保存值</option><option value="replace">填写新值</option><option value="clear">清除</option></select><small id="weather-public-note">尚未读取</small></div>
         <div class="field" id="weather-public-field"><label for="weather-public">公钥（uid）</label><input id="weather-public" type="password" maxlength="64" autocomplete="new-password" spellcheck="false" autocapitalize="none"></div>

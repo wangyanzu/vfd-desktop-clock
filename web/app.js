@@ -223,7 +223,10 @@
     byId('indoor-comparison-humidity').textContent = Number.isFinite(state.humidity) ? `湿度 ${state.humidity.toFixed(1)}%` : '湿度不可用';
     byId('outdoor-comparison-humidity').textContent = Number.isFinite(outdoor.humidity) ? `湿度 ${outdoor.humidity.toFixed(1)}%` : '湿度未提供';
     const labels = {disabled:'天气未配置',waiting_wifi:'等待 Wi-Fi',waiting_time:'等待校时后签名请求',fetching:'正在更新天气',online:'天气已更新',retrying:'天气请求失败，稍后重试',invalid_response:'天气返回数据无效，请核对 V3 产品权限和城市',auth_error:'天气鉴权失败，请核对公私钥和产品权限',rate_limited:'访问频率受限，稍后重试',unavailable:'天气服务不可用'};
-    byId('weather-status').textContent = (labels[outdoor.state] || '天气未配置') + (outdoorValid && !outdoor.fresh ? ' · 数据已过期' : '');
+    const errors = {AP010001:'天气请求参数错误',AP010002:'天气接口无访问权限',AP010003:'天气密钥错误',AP010004:'天气签名错误',AP010005:'天气接口不存在',AP010006:'该地点无访问权限',AP010010:'找不到天气地点，请使用城市拼音或纬度:经度',AP010011:'无法通过 IP 定位城市',AP010012:'天气服务已过期',AP010013:'天气访问余额不足',AP010014:'天气访问频率受限',AP100001:'该地点暂缺天气数据'};
+    const detail = errors[outdoor.errorCode] || labels[outdoor.state] || '天气未配置';
+    const diagnostic = outdoor.state !== 'online' && outdoor.httpStatus > 0 ? ` · HTTP ${outdoor.httpStatus}${outdoor.errorCode ? ` / ${outdoor.errorCode}` : ''}` : '';
+    byId('weather-status').textContent = detail + diagnostic + (outdoorValid && !outdoor.fresh ? ' · 数据已过期' : '');
     const humidity = Number.isFinite(outdoor.humidity) ? `${outdoor.humidity.toFixed(1)}%` : '接口未提供';
     byId('weather-observation').textContent = outdoorValid ? `${outdoor.city || ''} · ${outdoor.text || ''} · 室外湿度 ${humidity} · 观测时间 ${(outdoor.updated || '').replace('T',' ')}` : '等待天气数据';
   }

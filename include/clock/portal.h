@@ -27,6 +27,7 @@ struct DeviceStatus {
   OutdoorWeather outdoor;
   char weatherState[24] = "disabled";
   int weatherHttpStatus = 0;
+  char weatherErrorCode[12]{};
 };
 class ConfigPortal {
  public:

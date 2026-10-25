@@ -43,13 +43,20 @@ WeatherSnapshot fetchWeather(const WeatherSettings& settings) {
   http.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
   if (!http.begin(secure,url.c_str())) return result;
   const auto started=millis(); result.httpStatus=http.GET();
-  if (result.httpStatus==401 || result.httpStatus==403) result.state=WeatherState::authError;
-  else if (result.httpStatus==429) result.state=WeatherState::rateLimited;
-  else if (result.httpStatus==200) {
+  if (result.httpStatus>0) {
     BoundedBody body(started);
-    if (http.getSize()<=4096 && http.writeToStream(&body)>=0 && !body.rejected &&
-        parseWeatherResponse(body.text,int64_t(time(nullptr)),millis(),result.observation)) result.state=WeatherState::online;
-    else result.state=WeatherState::invalidResponse;
+    const bool received=http.getSize()<=4096 && http.writeToStream(&body)>=0 && !body.rejected;
+    if (received) {
+      const auto code=weatherErrorCode(body.text);
+      std::snprintf(result.errorCode,sizeof(result.errorCode),"%s",code.c_str());
+    }
+    if (result.httpStatus==401 || result.httpStatus==403) result.state=WeatherState::authError;
+    else if (result.httpStatus==429) result.state=WeatherState::rateLimited;
+    else if (result.httpStatus==200) {
+      if (received && parseWeatherResponse(body.text,int64_t(time(nullptr)),millis(),result.observation)) result.state=WeatherState::online;
+      else result.state=WeatherState::invalidResponse;
+    }
+    if (std::strcmp(result.errorCode,"AP010014")==0) result.state=WeatherState::rateLimited;
   }
   http.end(); secure.stop(); return result;
 }
@@ -98,6 +105,7 @@ void WeatherService::run() {
       portENTER_CRITICAL(&mux_);
       if (generation_==generation) {
         snapshot_.state=result.state; snapshot_.httpStatus=result.httpStatus;
+        std::memcpy(snapshot_.errorCode,result.errorCode,sizeof(snapshot_.errorCode));
         if (result.observation.valid) snapshot_.observation=result.observation;
       }
       portEXIT_CRITICAL(&mux_);

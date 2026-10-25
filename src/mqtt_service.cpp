@@ -9,13 +9,6 @@
 #include <time.h>
 
 namespace clockapp {
-namespace {
-class SecureClient : public NetworkClientSecure {
- public:
-  int connect(const char* host, uint16_t port) override { return NetworkClientSecure::connect(host, port, 1500); }
-  int connect(IPAddress ip, uint16_t port) override { return NetworkClientSecure::connect(ip, port, 1500); }
-};
-}
 bool MqttService::begin(const MqttSettings& settings) {
   if (!validMqttSettings(settings)) { state_ = MqttState::invalid; return false; }
   configure(settings);
@@ -46,8 +39,11 @@ bool MqttService::receive(IncomingMessage& message) {
 void MqttService::task(void* self) { static_cast<MqttService*>(self)->run(); }
 void MqttService::run() {
   NetworkClient plain;
-  SecureClient secure;
+  NetworkClientSecure secure;
   plain.setConnectionTimeout(1500);
+  // Set the inherited connection timeout directly: the timed connect overload
+  // calls virtual connect(), so overriding connect() with it recurses forever.
+  secure.setConnectionTimeout(1500);
   secure.setHandshakeTimeout(5);
   secure.useBuiltinCACertBundle(); // certificate validation stays enabled
   MQTTClient client(512);

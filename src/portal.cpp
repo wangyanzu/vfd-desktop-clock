@@ -229,6 +229,7 @@ std::string ConfigPortal::stateJson() {
   std::snprintf(values, sizeof(values), ",\"temperature\":%.1f,\"humidity\":", outdoor.temperature);
   result += ",\"outdoor\":{\"state\":" + jsonQuote(status.weatherState) +
     ",\"httpStatus\":" + std::to_string(status.weatherHttpStatus) +
+    ",\"errorCode\":" + jsonQuote(status.weatherErrorCode) +
     ",\"fresh\":" + (outdoor.fresh(millis()) ? "true" : "false") +
     ",\"city\":" + jsonQuote(outdoor.city) + ",\"text\":" + jsonQuote(outdoor.text) +
     ",\"updated\":" + jsonQuote(outdoor.updated);

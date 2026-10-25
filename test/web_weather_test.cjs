@@ -34,6 +34,9 @@ async function scenario({reject=false,storage=true}={}) {
   assert.match(get('weather-status').textContent,/过期/);
   state.outdoor.fresh=true; state.temperature=null;
   await nextPoll(); assert.equal(get('indoor-comparison').textContent,'—');
+  state.outdoor.state='retrying'; state.outdoor.httpStatus=404; state.outdoor.errorCode='AP010010';
+  await nextPoll(); assert.match(get('weather-status').textContent,/找不到天气地点/); assert.match(get('weather-status').textContent,/404.*AP010010/);
+  state.outdoor.state='online'; state.outdoor.httpStatus=200; state.outdoor.errorCode='';
   if (!storage) return;
   get('weather-location').value='shanghai';
   await nextPoll(); assert.equal(get('weather-location').value,'shanghai'); // polling preserves edits

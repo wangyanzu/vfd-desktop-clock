@@ -340,6 +340,7 @@ void loop() {
     status.outdoor = outdoor.observation;
     std::snprintf(status.weatherState, sizeof(status.weatherState), "%s", weatherStateName(outdoor.state));
     status.weatherHttpStatus = outdoor.httpStatus;
+    std::memcpy(status.weatherErrorCode,outdoor.errorCode,sizeof(status.weatherErrorCode));
     // Use the 64-bit system timer so uptime does not reset at millis() rollover.
     status.uptimeSeconds = static_cast<uint32_t>(esp_timer_get_time() / 1000000);
     if (status.connected) std::snprintf(status.ip, sizeof(status.ip), "%s", WiFi.localIP().toString().c_str());
@@ -371,8 +372,8 @@ void loop() {
                     static_cast<unsigned long>(autoPower.awakeSeconds(now)),
                     unsigned(autoPower.brightness(now, current.brightness)), autoPower.dimmed(now) ? "dim" : "high");
       const auto weatherStatus = weather.snapshot();
-      Serial.printf("WEATHER: state=%s http=%d valid=%d fresh=%d paused=%d\n",
-                    weatherStateName(weatherStatus.state), weatherStatus.httpStatus,
+      Serial.printf("WEATHER: state=%s http=%d code=%s valid=%d fresh=%d paused=%d\n",
+                    weatherStateName(weatherStatus.state), weatherStatus.httpStatus, weatherStatus.errorCode,
                     weatherStatus.observation.valid, weatherStatus.observation.fresh(now), weather.paused());
       Serial.printf("AHT: enabled=%d SDA=%d SCL=%d\n", sensorEnabled, config::sda, config::scl);
       if (sensorEnabled) {

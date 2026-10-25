@@ -4,7 +4,7 @@
 #include <cJSON.h>
 
 namespace clockapp {
-inline bool parseWeatherResponse(const std::string& body,int64_t epoch,uint32_t now,OutdoorWeather& out) {
+inline bool boundedWeatherJson(const std::string& body) {
   if (body.empty() || body.size()>4096 || body.find('\0')!=std::string::npos) return false;
   unsigned depth=0; bool quoted=false, escaped=false;
   for (char c : body) {
@@ -13,7 +13,26 @@ inline bool parseWeatherResponse(const std::string& body,int64_t epoch,uint32_t 
     else if (c=='{' || c=='[') { if (++depth>16) return false; }
     else if (c=='}' || c==']') { if (!depth) return false; --depth; }
   }
-  if (quoted || depth) return false;
+  return !quoted && !depth;
+}
+inline std::string weatherErrorCode(const std::string& body) {
+  if (!boundedWeatherJson(body)) return {};
+  cJSON* root=cJSON_ParseWithLengthOpts(body.c_str(),body.size()+1,nullptr,true);
+  if (!root) return {};
+  std::string code; unsigned count=0;
+  for (const cJSON* item=root->child;item;item=item->next) {
+    if (item->string && std::strcmp(item->string,"status_code")==0) {
+      ++count;
+      if (cJSON_IsString(item) && item->valuestring) code=item->valuestring;
+    }
+  }
+  cJSON_Delete(root);
+  if (count!=1 || code.size()!=8 || code.substr(0,2)!="AP") return {};
+  for (size_t i=2;i<code.size();++i) if (code[i]<'0' || code[i]>'9') return {};
+  return code;
+}
+inline bool parseWeatherResponse(const std::string& body,int64_t epoch,uint32_t now,OutdoorWeather& out) {
+  if (!boundedWeatherJson(body)) return false;
   const char* end=nullptr;
   cJSON* root=cJSON_ParseWithLengthOpts(body.c_str(),body.size()+1,&end,true);
   if (!root) return false;

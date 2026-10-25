@@ -15,7 +15,7 @@ inline const char* weatherStateName(WeatherState state) {
     case WeatherState::rateLimited:return "rate_limited"; default:return "unavailable";
   }
 }
-struct WeatherSnapshot { OutdoorWeather observation; WeatherState state=WeatherState::disabled; int httpStatus=0; };
+struct WeatherSnapshot { OutdoorWeather observation; WeatherState state=WeatherState::disabled; int httpStatus=0; char errorCode[12]{}; };
 class WeatherService {
  public:
   bool begin(const WeatherSettings& settings);

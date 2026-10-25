@@ -71,7 +71,7 @@ inline constexpr char index[] = R"VFDWEB(<!doctype html>
     <section class="setting-section" aria-labelledby="weather-title"><div class="section-heading"><span class="number">05</span><div><h2 id="weather-title">心知天气</h2><p>填写城市和 V3 API 公私钥，设备获取室外实况。保存后可勾选轮播中的室内外对比。</p></div></div>
       <div class="inputs">
         <div class="field"><label for="weather-enabled">天气服务</label><select id="weather-enabled"><option value="0">关闭</option><option value="1">启用</option></select></div>
-        <div class="field"><label for="weather-location">城市 / 位置</label><input id="weather-location" maxlength="64" placeholder="例如 shanghai、北京或城市 ID" autocomplete="off"><small>支持城市名、拼音或心知城市 ID，最多 64 字节。</small></div>
+        <div class="field"><label for="weather-location">城市 / 位置</label><input id="weather-location" maxlength="64" placeholder="例如 shanghai、北京或城市 ID" autocomplete="off"><small>支持城市名、拼音、城市 ID 或纬度:经度；区县名称无匹配时可用坐标，最多 64 字节。</small></div>
         <div class="field"><label for="weather-refresh">刷新间隔（分钟）</label><input id="weather-refresh" type="number" min="5" max="60" step="1" value="15" required><small>默认 15 分钟；失败后降低重试频率。</small></div>
         <div class="field"><label for="weather-public-mode">公钥操作</label><select id="weather-public-mode"><option value="keep">保留已保存值</option><option value="replace">填写新值</option><option value="clear">清除</option></select><small id="weather-public-note">尚未读取</small></div>
         <div class="field" id="weather-public-field"><label for="weather-public">公钥（uid）</label><input id="weather-public" type="password" maxlength="64" autocomplete="new-password" spellcheck="false" autocapitalize="none"></div>
@@ -321,7 +321,10 @@ inline constexpr char app[] = R"VFDWEB('use strict';
     byId('indoor-comparison-humidity').textContent = Number.isFinite(state.humidity) ? `湿度 ${state.humidity.toFixed(1)}%` : '湿度不可用';
     byId('outdoor-comparison-humidity').textContent = Number.isFinite(outdoor.humidity) ? `湿度 ${outdoor.humidity.toFixed(1)}%` : '湿度未提供';
     const labels = {disabled:'天气未配置',waiting_wifi:'等待 Wi-Fi',waiting_time:'等待校时后签名请求',fetching:'正在更新天气',online:'天气已更新',retrying:'天气请求失败，稍后重试',invalid_response:'天气返回数据无效，请核对 V3 产品权限和城市',auth_error:'天气鉴权失败，请核对公私钥和产品权限',rate_limited:'访问频率受限，稍后重试',unavailable:'天气服务不可用'};
-    byId('weather-status').textContent = (labels[outdoor.state] || '天气未配置') + (outdoorValid && !outdoor.fresh ? ' · 数据已过期' : '');
+    const errors = {AP010001:'天气请求参数错误',AP010002:'天气接口无访问权限',AP010003:'天气密钥错误',AP010004:'天气签名错误',AP010005:'天气接口不存在',AP010006:'该地点无访问权限',AP010010:'找不到天气地点，请使用城市拼音或纬度:经度',AP010011:'无法通过 IP 定位城市',AP010012:'天气服务已过期',AP010013:'天气访问余额不足',AP010014:'天气访问频率受限',AP100001:'该地点暂缺天气数据'};
+    const detail = errors[outdoor.errorCode] || labels[outdoor.state] || '天气未配置';
+    const diagnostic = outdoor.state !== 'online' && outdoor.httpStatus > 0 ? ` · HTTP ${outdoor.httpStatus}${outdoor.errorCode ? ` / ${outdoor.errorCode}` : ''}` : '';
+    byId('weather-status').textContent = detail + diagnostic + (outdoorValid && !outdoor.fresh ? ' · 数据已过期' : '');
     const humidity = Number.isFinite(outdoor.humidity) ? `${outdoor.humidity.toFixed(1)}%` : '接口未提供';
     byId('weather-observation').textContent = outdoorValid ? `${outdoor.city || ''} · ${outdoor.text || ''} · 室外湿度 ${humidity} · 观测时间 ${(outdoor.updated || '').replace('T',' ')}` : '等待天气数据';
   }

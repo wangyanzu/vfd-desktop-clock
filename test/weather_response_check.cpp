@@ -8,6 +8,8 @@ int main() {
   const std::string suffix=R"(},"last_update":"2026-10-25T11:50:00+08:00"}]})";
   const auto body=[&](const std::string& fields) { return prefix+fields+suffix; };
   const std::string base=R"("temperature":"18","code":"4","text":"Cloudy")";
+  assert(weatherErrorCode(R"({"status":"The location can not be found.","status_code":"AP010010"})") == "AP010010");
+  for (const auto& invalid : {R"({"status_code":"AP010010","status_code":"AP010005"})",R"({"status_code":"<script>"})",R"({"status_code":12})",R"({"status_code":"AP010010"}junk)"}) assert(weatherErrorCode(invalid).empty());
   OutdoorWeather sample;
   assert(parseWeatherResponse(body(base),now,100,sample));
   assert(sample.temperature==18 && !sample.humidityValid && sample.fresh(100) && sample.sourceAgeSeconds==600);
