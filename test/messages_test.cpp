@@ -79,6 +79,51 @@ void inboxTests() {
   assert(chinese.view(clock,true,wrapped+2500).key == 2);
   assert(!chinese.view(clock,true,wrapped+3400).message);
 }
+void playbackTests() {
+  CellFrame base;
+  MessageInbox shortMessage;
+  shortMessage.receive("short");
+  shortMessage.view(base,true,0,false);
+  shortMessage.view(base,true,100000,false);
+  assert(shortMessage.count()==1); // entry/backpressure consumes no plays
+  shortMessage.view(base,true,200000,true);
+  shortMessage.view(base,true,249999,false); // ordinary redraws do not restart timing
+  assert(shortMessage.count()==1);
+  assert(!shortMessage.view(base,true,250000,true).message && shortMessage.count()==0);
+  assert(!shortMessage.confirming(250000)); // expiry is not reported as user confirmation
+
+  MessageInbox longMessage;
+  longMessage.receive("ABCDEFGHIJKLMNOPQRSTUV"); // cycle = 3500 ms
+  longMessage.receive("next");
+  const auto old=longMessage.frontId();
+  longMessage.view(base,true,0);
+  longMessage.view(base,true,34999);
+  assert(longMessage.count()==2);
+  auto next=longMessage.view(base,true,35000);
+  assert(longMessage.count()==1 && next.id!=old && next.message);
+  assert(!longMessage.acknowledge(old,true,35000));
+  longMessage.view(base,true,100000,false);
+  assert(longMessage.count()==1); // the second message waits for its own entry
+  longMessage.view(base,true,101000,true);
+  longMessage.view(base,true,150999,true); assert(longMessage.count()==1);
+  longMessage.view(base,true,151000,true); assert(longMessage.count()==0);
+
+  MessageInbox paused;
+  paused.receive("ABCDEFGHIJKLMNOPQRSTUV");
+  paused.view(base,true,0);
+  paused.view(base,true,31500); // nine complete plays
+  paused.view(base,false,31600);
+  paused.view(base,true,100000); // resume: restart unfinished play, keep nine complete
+  paused.view(base,true,103499); assert(paused.count()==1);
+  paused.view(base,true,103500); assert(paused.count()==0);
+
+  MessageInbox rollover;
+  rollover.receive("short");
+  const uint32_t start=UINT32_MAX-1000;
+  rollover.view(base,true,start);
+  rollover.view(base,true,start+49999); assert(rollover.count()==1);
+  rollover.view(base,true,start+50000); assert(rollover.count()==0);
+}
 void ackAndRetryTests() {
   uint32_t id = 0;
   assert(parseMessageAck("id=16",id) && id == 16);
@@ -94,6 +139,6 @@ void ackAndRetryTests() {
   retry.reset(); assert(retry.ready(now));
 }
 int main() {
-  encodingTests(); inboxTests(); ackAndRetryTests();
-  std::cout << "PASS: all 7445 GB2312 mappings, strict UTF-8, bounded FIFO/dedup, scroll/pause/ack, stale IDs and retry rollover\n";
+  encodingTests(); inboxTests(); playbackTests(); ackAndRetryTests();
+  std::cout << "PASS: all 7445 GB2312 mappings, strict UTF-8, bounded FIFO/dedup, scroll/pause/ack, ten-play expiry/entry gating, stale IDs and retry rollover\n";
 }

@@ -5,7 +5,7 @@ const path = require('node:path');
 const { JSDOM } = require('jsdom');
 const root = path.resolve(__dirname, '..');
 const initial = {ssid:'Desk WiFi', ntp:'ntp.aliyun.com', ip:'192.168.1.40', csrf:'test-csrf',
-  passwordSet:true, storageReady:true, brightness:2, offset:480, connected:true,
+  passwordSet:true, storageReady:true, sleepMinutes:60, brightness:2, offset:480, connected:true,
   setupActive:false, timeValid:true, sensorEnabled:true, sampleFresh:true,
   uptime:3661, temperature:24.6, humidity:51.2, clock:'14:32:08'};
 async function until(check) {
@@ -40,10 +40,14 @@ function page({state=initial, reject=false, offline=false}={}) {
     assert.equal(p.get('password-mode').value,'keep');
     assert.equal(p.get('password-field').hidden,true);
     p.get('brightness').value='3';
+    assert.equal(p.get('sleep').value,'60');
+    assert.deepEqual(Array.from(p.get('sleep').options,option=>option.value),['15','30','60','120','0']);
+    p.get('sleep').value='120';
     p.get('settings').dispatchEvent(new p.window.Event('submit',{cancelable:true}));
     await until(()=>p.get('result').className==='success');
     assert.equal(p.sent.length,1);
     assert.equal(p.sent[0].body.get('brightness'),'3');
+    assert.equal(p.sent[0].body.get('sleep'),'120');
     assert.equal(p.sent[0].body.get('password_mode'),'keep');
     assert.equal(p.sent[0].body.get('password'),'');
     assert.equal(p.sent[0].options.headers['X-CSRF-Token'],'test-csrf');

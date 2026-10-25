@@ -13,6 +13,7 @@ struct Settings {
   char ntp[64] = "ntp.aliyun.com";
   int16_t utcOffsetMinutes = 480;
   uint8_t brightness = 2;
+  uint16_t sleepMinutes = 60;
 };
 
 inline bool printable(std::string_view value) {
@@ -68,12 +69,13 @@ inline bool validPassword(std::string_view password) {
   for (unsigned char c : password) if (c < 0x20 || c > 0x7e) return false;
   return true;
 }
+inline bool validSleepMinutes(unsigned value) { return value==0 || value==15 || value==30 || value==60 || value==120; }
 inline bool validSettings(const Settings& s) {
   // Check termination before treating persisted bytes as strings.
   if (!std::memchr(s.ssid, 0, sizeof(s.ssid)) || !std::memchr(s.password, 0, sizeof(s.password)) ||
       !std::memchr(s.ntp, 0, sizeof(s.ntp))) return false;
   return printable(s.ssid) && validUtf8(s.ssid) && validPassword(s.password) && validHost(s.ntp) &&
-         s.brightness >= 1 && s.brightness <= 4 && s.utcOffsetMinutes >= -720 && s.utcOffsetMinutes <= 840;
+         validSleepMinutes(s.sleepMinutes) && s.brightness >= 1 && s.brightness <= 4 && s.utcOffsetMinutes >= -720 && s.utcOffsetMinutes <= 840;
 }
 inline bool sameNetwork(const Settings& a, const Settings& b) {
   return std::strcmp(a.ssid, b.ssid) == 0 && std::strcmp(a.password, b.password) == 0;
@@ -87,7 +89,8 @@ inline std::string timezoneForOffset(int minutes) {
 }
 
 // Explicit, versioned wire format: never persist a C++ struct/padding.
-using SettingsRecord = std::array<uint8_t, 173>;
+using LegacySettingsRecord = std::array<uint8_t, 173>;
+using SettingsRecord = std::array<uint8_t, 175>;
 inline uint32_t crc32(const uint8_t* bytes, size_t length) {
   uint32_t crc = 0xffffffff;
   for (size_t i = 0; i < length; ++i) {
@@ -99,7 +102,7 @@ inline uint32_t crc32(const uint8_t* bytes, size_t length) {
 }
 inline SettingsRecord encodeSettings(const Settings& settings) {
   SettingsRecord out{};
-  const uint8_t magic[] = {'V', 'F', 'C', 1};
+  const uint8_t magic[] = {'V', 'F', 'C', 2};
   std::memcpy(out.data(), magic, 4);
   std::memcpy(out.data() + 4, settings.ssid, 33);
   std::memcpy(out.data() + 37, settings.password, 65);
@@ -108,15 +111,18 @@ inline SettingsRecord encodeSettings(const Settings& settings) {
   out[166] = offset & 0xff;
   out[167] = offset >> 8;
   out[168] = settings.brightness;
-  const uint32_t checksum = crc32(out.data(), 169);
-  for (unsigned i = 0; i < 4; ++i) out[169 + i] = (checksum >> (i * 8)) & 0xff;
+  out[169] = uint8_t(settings.sleepMinutes); out[170] = uint8_t(settings.sleepMinutes >> 8);
+  const uint32_t checksum = crc32(out.data(), 171);
+  for (unsigned i = 0; i < 4; ++i) out[171 + i] = (checksum >> (i * 8)) & 0xff;
   return out;
 }
-inline bool decodeSettings(const SettingsRecord& record, Settings& destination) {
-  if (record[0] != 'V' || record[1] != 'F' || record[2] != 'C' || record[3] != 1) return false;
+template<size_t N>
+inline bool decodeSettings(const std::array<uint8_t,N>& record, Settings& destination) {
+  if (N != 173 && N != 175) return false;
+  if (record[0] != 'V' || record[1] != 'F' || record[2] != 'C' || record[3] != (N==173?1:2)) return false;
   uint32_t expected = 0;
-  for (unsigned i = 0; i < 4; ++i) expected |= uint32_t(record[169 + i]) << (i * 8);
-  if (expected != crc32(record.data(), 169)) return false;
+  for (unsigned i = 0; i < 4; ++i) expected |= uint32_t(record[N-4 + i]) << (i * 8);
+  if (expected != crc32(record.data(), N-4)) return false;
   Settings candidate{};
   std::memcpy(candidate.ssid, record.data() + 4, 33);
   std::memcpy(candidate.password, record.data() + 37, 65);
@@ -124,6 +130,7 @@ inline bool decodeSettings(const SettingsRecord& record, Settings& destination) 
   const uint16_t offset = uint16_t(record[166]) | (uint16_t(record[167]) << 8);
   candidate.utcOffsetMinutes = static_cast<int16_t>(offset < 0x8000 ? int(offset) : int(offset) - 65536);
   candidate.brightness = record[168];
+  if constexpr (N==175) candidate.sleepMinutes = uint16_t(record[169]) | uint16_t(record[170]) << 8;
   if (!validSettings(candidate)) return false;
   destination = candidate;
   return true;
@@ -146,6 +153,7 @@ inline bool parseInteger(std::string_view value, int minimum, int maximum, int& 
 
 struct SettingsInput {
   std::string ssid, password, passwordMode, brightness, offset, ntp;
+  std::string sleepMinutes{};
 };
 // Validation is transactional. A failed edit never changes destination.
 inline const char* applySettings(const Settings& current, const SettingsInput& input, Settings& destination) {
@@ -169,6 +177,11 @@ inline const char* applySettings(const Settings& current, const SettingsInput& i
   if (!validHost(input.ntp)) return "校时服务器须为有效主机名或 IPv4 地址，不含 http://。";
   std::memset(next.ntp, 0, sizeof(next.ntp));
   std::memcpy(next.ntp, input.ntp.data(), input.ntp.size());
+  if (!input.sleepMinutes.empty()) {
+    int minutes=0;
+    if (!parseInteger(input.sleepMinutes,0,120,minutes) || !validSleepMinutes(unsigned(minutes))) return "请选择有效的自动休眠时间。";
+    next.sleepMinutes = uint16_t(minutes);
+  }
   next.brightness = static_cast<uint8_t>(brightness);
   next.utcOffsetMinutes = static_cast<int16_t>(offset);
   destination = next;
@@ -219,18 +232,18 @@ inline bool parseSettingsForm(std::string_view body, SettingsInput& output) {
     if (equal == std::string_view::npos) return false;
     std::string key, value;
     if (!decodeFormValue(part.substr(0, equal), key) || !decodeFormValue(part.substr(equal + 1), value)) return false;
-    const char* names[] = {"ssid", "password", "password_mode", "brightness", "offset", "ntp"};
+    const char* names[] = {"ssid", "password", "password_mode", "brightness", "offset", "ntp", "sleep"};
     std::string* fields[] = {&candidate.ssid, &candidate.password, &candidate.passwordMode,
-                             &candidate.brightness, &candidate.offset, &candidate.ntp};
+                             &candidate.brightness, &candidate.offset, &candidate.ntp, &candidate.sleepMinutes};
     unsigned index = 0;
-    for (; index < 6 && key != names[index]; ++index) {}
-    if (index == 6 || (seen & (1u << index))) return false;
+    for (; index < 7 && key != names[index]; ++index) {}
+    if (index == 7 || (seen & (1u << index))) return false;
     *fields[index] = value; seen |= 1u << index;
     if (end == std::string_view::npos) break;
     body.remove_prefix(end + 1);
     if (body.empty()) return false;
   }
-  if (seen != 63) return false;
+  if ((seen & 63) != 63) return false;
   output = candidate;
   return true;
 }

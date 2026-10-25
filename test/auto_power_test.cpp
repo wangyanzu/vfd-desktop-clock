@@ -23,16 +23,22 @@ int main() {
     assert(power.brightness(60500,normal)==(normal<4?normal:3));
   }
   assert(!power.dimmed(60499) && power.dimmed(60500));
-  assert(!power.sleepDue(1800499) && power.sleepDue(1800500));
+  assert(!power.sleepDue(1800499,30) && power.sleepDue(1800500,30));
   assert(power.awakeSeconds(60500)==60);
+  assert(!power.sleepDue(3600499) && power.sleepDue(3600500)); // default is 60 minutes
+  for (uint16_t minutes : {15,30,60,120}) {
+    const uint32_t deadline=500+uint32_t(minutes)*60000;
+    assert(!power.sleepDue(deadline-1,minutes) && power.sleepDue(deadline,minutes));
+  }
+  assert(!power.sleepDue(UINT32_MAX,0));
   // Routine polling never changes the session deadline.
-  for (uint32_t now=500;now<1800500;now+=1000) assert(!power.sleepDue(now));
+  for (uint32_t now=500;now<1800500;now+=1000) assert(!power.sleepDue(now,30));
   power.restart(1900000);
-  assert(power.brightness(1900000,2)==4 && !power.sleepDue(1900000));
-  assert(power.brightness(1960000,2)==2 && power.sleepDue(3700000));
+  assert(power.brightness(1900000,2)==4 && !power.sleepDue(1900000,30));
+  assert(power.brightness(1960000,2)==2 && power.sleepDue(3700000,30));
   power.restart(UINT32_MAX-1000);
   assert(power.brightness(58998,2)==4 && power.brightness(58999,2)==2);
-  assert(!power.sleepDue(1798998) && power.sleepDue(1798999));
+  assert(!power.sleepDue(1798998,30) && power.sleepDue(1798999,30));
 
   // Exercise actual VFD brightness commands and the power-off drain at the deadline.
   PowerPort port; DisplayService<PowerPort> screen(port,Motion::off,0);
@@ -42,7 +48,7 @@ int main() {
   port.busy=false; screen.tick(1); port.busy=false;
   screen.brightness(power.brightness(59999,2)); screen.tick(59999); assert(port.brightness==4);
   port.busy=false; screen.brightness(power.brightness(60000,2)); screen.tick(60000); assert(port.brightness==2);
-  assert(power.sleepDue(1800000)); manual.sleep(); preparation.begin(1800000); screen.sleep(1800000);
+  assert(power.sleepDue(1800000,30)); manual.sleep(); preparation.begin(1800000); screen.sleep(1800000);
   port.busy=false; screen.tick(1800000); // blank
   port.busy=false; screen.tick(1800001); // OFF
   assert(!screen.asleepAndDrained()); port.busy=false; assert(screen.asleepAndDrained() && port.off==1);
@@ -52,7 +58,7 @@ int main() {
   manual.wake(4000000); power.restart(4000000); screen.brightness(power.brightness(4000000,2)); screen.wake(4000000);
   screen.tick(4000000); assert(port.brightness==4);
   port.busy=false; screen.tick(4000001);
-  assert(screen.state()==DisplayService<PowerPort>::State::awake && !power.sleepDue(4000001));
+  assert(screen.state()==DisplayService<PowerPort>::State::awake && !power.sleepDue(4000001,30));
   assert(manual.update(true,4000010)==Button::Event::none && !manual.sleeping());
-  std::cout << "PASS: startup/wake high brightness, exact 60s dim and 30min sleep boundaries, legacy brightness, timer rollover, VFD commands and OFF drain\n";
+  std::cout << "PASS: startup/wake high brightness, exact 60s dim, configurable sleep/default 60min/disabled boundaries, legacy brightness, timer rollover, VFD commands and OFF drain\n";
 }

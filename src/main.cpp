@@ -281,16 +281,22 @@ void loop() {
   display.brightness(autoPower.brightness(now, current.brightness));
   applied = current;
   if (displayReady && config::hasButton) {
-    const auto event = manual.update(digitalRead(config::button) == LOW, now);
-    if (event == Button::Event::shortPress) shortPress(now);
+    const auto event = manual.update(digitalRead(config::button) == LOW, now,
+        messageEligible() && (messages.count() || messages.confirming(now)));
+    if (event == Button::Event::shortPress) {
+      if (manual.confirmationPress()) {
+        requestAck(messages.frontId(), now);
+        Serial.println("MESSAGE: button confirmation requested");
+      } else shortPress(now);
+    }
     if (event == Button::Event::longPress) {
       autoPower.restart(now); display.brightness(4);
       manual.wake(now); mqtt.pause(false); weather.pause(false); display.wake(now); network.requestSetup();
     }
   }
-  if (displayReady && config::hasButton && !manual.sleeping() && autoPower.sleepDue(now)) {
+  if (displayReady && config::hasButton && !manual.sleeping() && autoPower.sleepDue(now,current.sleepMinutes)) {
     manual.sleep(); shortPress(now, "timer");
-    Serial.println("POWER: 30 minutes awake; preparing automatic sleep");
+    Serial.printf("POWER: %u minutes awake; preparing automatic sleep\n",current.sleepMinutes);
   }
   if (firstFrame || elapsed(now, lastFrameAt, 100)) {
     firstFrame = false; lastFrameAt = now;
@@ -316,7 +322,8 @@ void loop() {
       frame.set(0, "http://192.168.4.1");
       char key[21]; std::snprintf(key, sizeof(key), "KEY:%s", portal.accessKey()); frame.set(1, key);
     }
-    const auto selected = messages.view(setupPage ? CellFrame(frame) : labelSources(frame, rotation.page()), messageEligible(), now);
+    const auto selected = messages.view(setupPage ? CellFrame(frame) : labelSources(frame, rotation.page()), messageEligible(), now,
+        display.pageVisible(messages.frontId(), now));
     const uint32_t pageKey = showingStartupIp ? StartupIp::pageKey : setupPage ? 1 : (selected.key ? selected.key : rotation.key());
     const uint8_t rows = showingStartupIp || setupPage || wasSetupPage ? 3 : 2;
     // System setup pages replace both rows; message pages preserve the clock.

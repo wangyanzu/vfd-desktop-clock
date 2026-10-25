@@ -81,6 +81,7 @@
     if (!loaded) {
       byId('ssid').value = state.ssid;
       byId('brightness').value = String(Math.min(3, state.brightness));
+      byId('sleep').value = String(state.sleepMinutes ?? 60);
       byId('offset').value = String(state.offset);
       byId('ntp').value = state.ntp;
       byId('password-mode').value = state.ssid ? 'keep' : 'replace';
@@ -126,7 +127,7 @@
     const mode = byId('password-mode').value;
     const body = new URLSearchParams({ssid: byId('ssid').value, password_mode: mode,
       password: mode === 'replace' ? byId('password').value : '', brightness: byId('brightness').value,
-      offset: byId('offset').value, ntp: byId('ntp').value});
+      offset: byId('offset').value, ntp: byId('ntp').value, sleep: byId('sleep').value});
     saving = true; fields.disabled = true; byId('save').textContent = '正在保存…'; notice('正在写入设备，请稍候。');
     try {
       await request('/api/settings', {method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': csrf}, body});

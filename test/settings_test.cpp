@@ -1,5 +1,6 @@
 #include "clock/settings.h"
 #include <cassert>
+#include <algorithm>
 #include <iostream>
 using namespace clockapp;
 int main() {
@@ -24,9 +25,26 @@ int main() {
   }
   auto unterminated = encoded;
   for (size_t i = 4; i < 37; ++i) unterminated[i] = 'a';
-  const auto checksum = crc32(unterminated.data(), 169);
-  for (unsigned i = 0; i < 4; ++i) unterminated[169 + i] = (checksum >> (i * 8)) & 0xff;
+  const auto checksum = crc32(unterminated.data(), 171);
+  for (unsigned i = 0; i < 4; ++i) unterminated[171 + i] = (checksum >> (i * 8)) & 0xff;
   assert(!decodeSettings(unterminated, decoded));
+  LegacySettingsRecord legacy{};
+  std::copy_n(encoded.begin(),169,legacy.begin()); legacy[3]=1;
+  const auto legacyCrc=crc32(legacy.data(),169);
+  for (unsigned i=0;i<4;++i) legacy[169+i]=uint8_t(legacyCrc >> (8*i));
+  decoded.sleepMinutes=15;
+  assert(decodeSettings(legacy,decoded) && decoded.sleepMinutes==60);
+  assert(sameNetwork(original,decoded) && decoded.utcOffsetMinutes==original.utcOffsetMinutes);
+  for (size_t i=0;i<legacy.size();++i) {
+    auto corrupt=legacy; corrupt[i]^=1;
+    assert(!decodeSettings(corrupt,decoded));
+  }
+  for (uint16_t minutes : {0,15,30,60,120}) {
+    Settings choice=original; choice.sleepMinutes=minutes;
+    assert(decodeSettings(encodeSettings(choice),decoded) && decoded.sleepMinutes==minutes);
+  }
+  Settings invalidSleep=original; invalidSleep.sleepMinutes=45;
+  assert(!decodeSettings(encodeSettings(invalidSleep),decoded));
   assert(validHost("ntp.aliyun.com") && validHost("192.168.1.1"));
   assert(!validHost("http://ntp.aliyun.com") && !validHost("a..b") && !validHost("a-.b"));
   assert(!validHost("-abc") && !validHost("a\r\nHeader"));
@@ -51,6 +69,11 @@ int main() {
   assert(jsonQuote("a\"b\\c\n") == "\"a\\\"b\\\\c\\u000a\"");
   const std::string body = "ssid=Desk+WiFi&password=&password_mode=keep&brightness=2&offset=480&ntp=ntp.aliyun.com";
   assert(parseSettingsForm(body, input)); assert(input.ssid == "Desk WiFi");
+  assert(parseSettingsForm(body+"&sleep=120",input) && input.sleepMinutes=="120");
+  assert(!applySettings(original,input,next) && next.sleepMinutes==120);
+  input.sleepMinutes="45"; next=original;
+  assert(applySettings(original,input,next) && next.sleepMinutes==60);
+  assert(!parseSettingsForm(body+"&sleep=15&sleep=60",input));
   assert(!parseSettingsForm(body + "&ssid=duplicate", input));
   assert(!parseSettingsForm(body + "&unknown=value", input));
   assert(!parseSettingsForm(body + "&", input));

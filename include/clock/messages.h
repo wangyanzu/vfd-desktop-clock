@@ -61,6 +61,8 @@ class MessageInbox {
  public:
   static constexpr size_t capacity = 8;
   static constexpr uint32_t confirmationMs = 1000;
+  static constexpr uint32_t shortPlayMs = 5000;
+  static constexpr uint8_t playLimit = 10;
   static constexpr uint32_t initialHoldMs = 1500, scrollStepMs = 400, endHoldMs = 1200;
   enum class Received { added, duplicate, invalid, full };
   struct View { CellFrame frame; uint32_t key = 0, id = 0; bool message = false; };
@@ -82,22 +84,34 @@ class MessageInbox {
     ++count_;
     return Received::added;
   }
-  View view(const CellFrame& base, bool eligible, uint32_t now) {
+  View view(const CellFrame& base, bool eligible, uint32_t now, bool pageSettled = true) {
     View result; result.frame = base;
-    if (!eligible) { activeId_ = 0; visibleId_ = 0; feedback_ = false; return result; }
+    if (!eligible) { activeId_ = 0; visibleId_ = 0; feedback_ = false; timing_ = false; return result; }
     if (feedback_ && !elapsed(now, confirmedAt_, confirmationMs)) {
       result.frame.setAscii(1, "MESSAGE CONFIRMED"); result.key = 2; visibleId_ = 0;
       return result;
     }
     feedback_ = false;
     if (!count_) { activeId_ = visibleId_ = 0; return result; }
-    const auto& current = queue_[head_];
-    if (activeId_ != current.id) { activeId_ = current.id; enteredAt_ = now; }
+    auto& current = queue_[head_];
+    if (activeId_ != current.id) { activeId_ = current.id; enteredAt_ = now; timing_ = false; }
+    // Wait once for entry animation/UART drain. Ordinary scroll redraws do not
+    // restart playback. Completed plays survive sleep; a partial play restarts.
+    if (!timing_ && pageSettled) { enteredAt_ = now; timing_ = true; }
+    const uint32_t cycle = current.text.length > 20 ?
+        initialHoldMs + uint32_t(current.text.length - 20) * scrollStepMs + endHoldMs : shortPlayMs;
+    const uint32_t age = timing_ ? uint32_t(now - enteredAt_) : 0;
+    const uint32_t plays = age / cycle;
+    if (plays >= uint32_t(playLimit - current.completedPlays)) {
+      removeFront(); // Automatic expiry is not a user confirmation.
+      return view(base, eligible, now, false);
+    }
+    current.completedPlays += uint8_t(plays);
+    enteredAt_ += plays * cycle;
     size_t offset = 0;
     if (current.text.length > 20) {
       const size_t span = current.text.length - 20;
-      const uint32_t cycle = initialHoldMs + static_cast<uint32_t>(span) * scrollStepMs + endHoldMs;
-      const auto position = static_cast<uint32_t>(now - enteredAt_) % cycle;
+      const auto position = age % cycle;
       if (position >= initialHoldMs) offset = (position - initialHoldMs) / scrollStepMs;
       if (offset > span) offset = span;
     }
@@ -114,8 +128,8 @@ class MessageInbox {
   bool acknowledge(uint32_t id, bool eligible, uint32_t now) {
     // A stale browser response/button event must never clear the next message.
     if (!eligible || !id || !count_ || queue_[head_].id != id || visibleId_ != id) return false;
-    queue_[head_] = {}; head_ = (head_ + 1) % capacity; --count_;
-    activeId_ = visibleId_ = 0; feedback_ = true; confirmedAt_ = now;
+    removeFront();
+    feedback_ = true; confirmedAt_ = now;
     return true;
   }
   bool confirming(uint32_t now) const { return feedback_ && !elapsed(now, confirmedAt_, confirmationMs); }
@@ -125,12 +139,16 @@ class MessageInbox {
   uint32_t rejected() const { return rejected_; }
   uint32_t duplicates() const { return duplicates_; }
  private:
-  struct Message { DisplayText text; std::array<char, 257> utf8{}; uint16_t bytes = 0; uint32_t id = 0; };
+  void removeFront() {
+    queue_[head_] = {}; head_ = (head_ + 1) % capacity; --count_;
+    activeId_ = visibleId_ = 0; timing_ = false;
+  }
+  struct Message { uint8_t completedPlays = 0; DisplayText text; std::array<char, 257> utf8{}; uint16_t bytes = 0; uint32_t id = 0; };
   std::array<Message, capacity> queue_{};
   size_t head_ = 0, count_ = 0;
   uint32_t nextId_ = 16, activeId_ = 0, visibleId_ = 0, enteredAt_ = 0, confirmedAt_ = 0;
   uint32_t rejected_ = 0, duplicates_ = 0;
-  bool feedback_ = false;
+  bool feedback_ = false, timing_ = false;
 };
 
 inline bool parseMessageAck(std::string_view body, uint32_t& destination) {

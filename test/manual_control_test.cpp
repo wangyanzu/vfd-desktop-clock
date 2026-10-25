@@ -14,11 +14,11 @@ struct Port {
   }
   bool drained() const { return !busy; }
 };
-void click(ManualControl& control, uint32_t at) {
-  assert(control.update(true, at) == Button::Event::none);
-  assert(control.update(true, at + 30) == Button::Event::none);
-  assert(control.update(false, at + 50) == Button::Event::none);
-  assert(control.update(false, at + 80) == Button::Event::shortPress);
+void click(ManualControl& control, uint32_t at, bool message = false) {
+  assert(control.update(true, at, message) == Button::Event::none);
+  assert(control.update(true, at + 30, message) == Button::Event::none);
+  assert(control.update(false, at + 50, message) == Button::Event::none);
+  assert(control.update(false, at + 80, message) == Button::Event::shortPress);
 }
 int main() {
   SleepPreparation preparation;
@@ -68,6 +68,22 @@ int main() {
   wrapped.sleep(); wrapped.wake(UINT32_MAX - 10);
   wrapped.update(true, UINT32_MAX - 5); wrapped.update(false, 10); wrapped.update(false, 40);
   click(wrapped, 100); assert(wrapped.sleeping());
+
+  ManualControl confirming;
+  click(confirming,100,true);
+  assert(confirming.confirmationPress() && !confirming.sleeping());
+  // A message disappearing during the press must not turn confirmation into sleep.
+  confirming.update(true,200,true); confirming.update(true,230,true);
+  confirming.update(false,250,false);
+  assert(confirming.update(false,280,false)==Button::Event::shortPress);
+  assert(confirming.confirmationPress() && !confirming.sleeping());
+  click(confirming,300);
+  assert(!confirming.confirmationPress() && confirming.sleeping());
+  confirming.wake(1000);
+  confirming.update(true,1001,true); confirming.update(true,5000,true);
+  confirming.update(false,5010,true); confirming.update(false,5040,true);
+  assert(!confirming.sleeping()); // wake press never confirms the message
+  click(confirming,5100,true); assert(confirming.confirmationPress() && !confirming.sleeping());
 
   // MCU sleep eligibility follows the physical display OFF drain, not just a click.
   Port port; DisplayService<Port> screen(port, Motion::off, 0);

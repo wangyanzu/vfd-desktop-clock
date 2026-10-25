@@ -11,14 +11,14 @@ inline constexpr char index[] = R"VFDWEB(<!doctype html>
     <div class="intro"><p class="eyebrow">YOUR EVERYDAY INSTRUMENT</p><h1 id="title">把时间，<br>调到刚刚好。</h1><p class="description">连接网络，选择舒适的亮度。<br>设置保存在时钟里，重启后依然生效。</p><p id="connection" class="connection" role="status">正在读取设备状态…</p></div>
     <div class="instrument" aria-label="设备实时状态"><div class="instrument-top"><span>LIVE / DEVICE</span><span id="network-label">读取中</span></div><p id="clock" class="clock">--:--:--</p><div class="readings"><span>室内温度 <strong id="temperature">—</strong></span><span>湿度 <strong id="humidity">—</strong></span></div><p id="sensor-note" class="instrument-note">室内 · AHT10 传感器</p><div class="instrument-bottom"><span id="address">IP —</span><span id="uptime">运行 —</span></div></div>
   </section>
-  <section class="message-panel" aria-labelledby="messages-title"><div><p class="eyebrow">INBOX / DEVICE</p><h2 id="messages-title">消息收件箱</h2><p id="mqtt-status" role="status">正在读取消息状态…</p><small id="message-status">等待设备响应</small></div><div class="message-actions"><button type="button" id="ack-message" disabled>确认屏幕当前消息</button><p id="ack-result" role="status" aria-live="polite"></p></div></section>
+  <section class="message-panel" aria-labelledby="messages-title"><div><p class="eyebrow">INBOX / DEVICE</p><h2 id="messages-title">消息收件箱</h2><p id="mqtt-status" role="status">正在读取消息状态…</p><small id="message-status">等待设备响应</small><p class="instrument-note">短按 GPIO3 确认当前消息；播放 10 遍后自动清除，短消息每遍 5 秒。</p></div><div class="message-actions"><button type="button" id="ack-message" disabled>确认屏幕当前消息</button><p id="ack-result" role="status" aria-live="polite"></p></div></section>
   <form id="settings" autocomplete="off">
     <fieldset id="fields" disabled><legend class="sr-only">时钟设置</legend>
       <section class="setting-section" aria-labelledby="network-title"><div class="section-heading"><span class="number">01</span><div><h2 id="network-title">连接网络</h2><p>使用 2.4 GHz Wi-Fi。更换网络后，连接可能短暂中断。</p></div></div>
         <div class="inputs"><div class="field"><label for="ssid">Wi-Fi 名称</label><input id="ssid" name="ssid" maxlength="32" required autocomplete="off" placeholder="输入网络名称"><small>最多 32 字节，中文通常每字占 3 字节。</small></div><div class="field"><label for="password-mode">密码操作</label><select id="password-mode" name="password_mode"><option value="replace">填写新密码</option><option value="keep">保留已保存的密码</option><option value="open">连接无密码的开放网络</option></select></div><div class="field wide" id="password-field"><label for="password">Wi-Fi 密码</label><div class="password-input"><input id="password" type="password" name="password" maxlength="64" autocomplete="new-password"><button type="button" id="toggle-password" aria-controls="password" aria-pressed="false">显示</button></div><small>8–63 个 ASCII 字符，或 64 位十六进制密钥。保存后不回显。</small></div></div>
       </section>
-      <section class="setting-section" aria-labelledby="display-title"><div class="section-heading"><span class="number">02</span><div><h2 id="display-title">显示与时间</h2><p>上电 / 唤醒时 100% 高亮，60 秒后调暗，30 分钟后自动休眠。按钮可唤醒；校时设置自动应用。</p></div></div>
-        <div class="inputs"><div class="field"><label for="brightness">60 秒后的常态亮度</label><select id="brightness" name="brightness"><option value="1">25% · 柔和</option><option value="2">50% · 日常</option><option value="3">75% · 明亮</option></select></div><div class="field"><label for="offset">UTC 偏移（分钟）</label><input id="offset" name="offset" type="number" min="-720" max="840" step="1" value="480" required><small>中国标准时间为 480；UTC 为 0，不自动切换夏令时。</small></div><div class="field wide"><label for="ntp">网络校时服务器</label><input id="ntp" name="ntp" maxlength="63" value="ntp.aliyun.com" required spellcheck="false" autocapitalize="none"><small>填写主机名或 IPv4 地址，例如 ntp.aliyun.com。</small></div></div>
+      <section class="setting-section" aria-labelledby="display-title"><div class="section-heading"><span class="number">02</span><div><h2 id="display-title">显示与时间</h2><p>上电 / 唤醒时 100% 高亮，60 秒后调暗，默认 60 分钟后自动休眠，可在下方调整。按钮可唤醒；校时设置自动应用。</p></div></div>
+        <div class="inputs"><div class="field"><label for="brightness">60 秒后的常态亮度</label><select id="brightness" name="brightness"><option value="1">25% · 柔和</option><option value="2">50% · 日常</option><option value="3">75% · 明亮</option></select></div><div class="field"><label for="sleep">自动休眠</label><select id="sleep" name="sleep"><option value="15">15 分钟</option><option value="30">30 分钟</option><option value="60" selected>60 分钟 · 默认</option><option value="120">120 分钟</option><option value="0">永不自动休眠</option></select><small>从上电或唤醒开始计时，GPIO3 仍可手动休眠及唤醒。</small></div><div class="field"><label for="offset">UTC 偏移（分钟）</label><input id="offset" name="offset" type="number" min="-720" max="840" step="1" value="480" required><small>中国标准时间为 480；UTC 为 0，不自动切换夏令时。</small></div><div class="field wide"><label for="ntp">网络校时服务器</label><input id="ntp" name="ntp" maxlength="63" value="ntp.aliyun.com" required spellcheck="false" autocapitalize="none"><small>填写主机名或 IPv4 地址，例如 ntp.aliyun.com。</small></div></div>
       </section>
       <div class="save-bar"><p id="result" role="status" aria-live="polite">所有设置仅保存在这台设备。</p><button class="primary" type="submit" id="save">保存并应用 <span aria-hidden="true">↗</span></button></div>
     </fieldset>
@@ -179,6 +179,7 @@ inline constexpr char app[] = R"VFDWEB('use strict';
     if (!loaded) {
       byId('ssid').value = state.ssid;
       byId('brightness').value = String(Math.min(3, state.brightness));
+      byId('sleep').value = String(state.sleepMinutes ?? 60);
       byId('offset').value = String(state.offset);
       byId('ntp').value = state.ntp;
       byId('password-mode').value = state.ssid ? 'keep' : 'replace';
@@ -224,7 +225,7 @@ inline constexpr char app[] = R"VFDWEB('use strict';
     const mode = byId('password-mode').value;
     const body = new URLSearchParams({ssid: byId('ssid').value, password_mode: mode,
       password: mode === 'replace' ? byId('password').value : '', brightness: byId('brightness').value,
-      offset: byId('offset').value, ntp: byId('ntp').value});
+      offset: byId('offset').value, ntp: byId('ntp').value, sleep: byId('sleep').value});
     saving = true; fields.disabled = true; byId('save').textContent = '正在保存…'; notice('正在写入设备，请稍候。');
     try {
       await request('/api/settings', {method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': csrf}, body});

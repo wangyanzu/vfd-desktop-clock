@@ -6,10 +6,11 @@ namespace clockapp {
 class AutoPower {
  public:
   static constexpr uint32_t dimAfterMs = 60000;
-  static constexpr uint32_t sleepAfterMs = 30 * 60 * 1000;
   void restart(uint32_t now) { awakeAt_ = now; }
   bool dimmed(uint32_t now) const { return elapsed(now, awakeAt_, dimAfterMs); }
-  bool sleepDue(uint32_t now) const { return elapsed(now, awakeAt_, sleepAfterMs); }
+  bool sleepDue(uint32_t now, uint16_t minutes=60) const {
+    return minutes != 0 && elapsed(now, awakeAt_, uint32_t(minutes)*60000);
+  }
   uint8_t brightness(uint32_t now, uint8_t normal) const {
     // Legacy settings may still contain level 4. The dim phase must be lower.
     return !dimmed(now) ? 4 : normal < 1 ? 1 : normal > 3 ? 3 : normal;

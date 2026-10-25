@@ -20,7 +20,7 @@ class SleepPreparation {
 // The wake press belongs only to waking: ignore it until a debounced release.
 class ManualControl {
  public:
-  Button::Event update(bool pressed, uint32_t now) {
+  Button::Event update(bool pressed, uint32_t now, bool confirmationAvailable = false) {
     if (ignoreWakePress_) {
       if (pressed) releaseTiming_ = false;
       else if (!releaseTiming_) { releaseTiming_ = true; releasedAt_ = now; }
@@ -30,17 +30,24 @@ class ManualControl {
       }
       return Button::Event::none;
     }
+    if (pressed && confirmationAvailable && !sleeping_) confirmPress_ = true;
     const auto event = button_.update(pressed, now);
-    if (event == Button::Event::shortPress) sleeping_ = !sleeping_;
+    if (event == Button::Event::shortPress) {
+      lastShortConfirms_ = confirmPress_; confirmPress_ = false;
+      if (!lastShortConfirms_) sleeping_ = !sleeping_;
+    }
+    if (event == Button::Event::longPress) confirmPress_ = false;
     return event;
   }
   void sleep() { sleeping_ = true; }
   void wake(uint32_t now) {
-    sleeping_ = false; ignoreWakePress_ = true; releaseTiming_ = false; releasedAt_ = now;
+    sleeping_ = false; confirmPress_ = false; ignoreWakePress_ = true; releaseTiming_ = false; releasedAt_ = now;
   }
   bool sleeping() const { return sleeping_; }
+  bool confirmationPress() const { return lastShortConfirms_; }
  private:
   Button button_;
+  bool confirmPress_ = false, lastShortConfirms_ = false;
   bool sleeping_ = false, ignoreWakePress_ = false, releaseTiming_ = false;
   uint32_t releasedAt_ = 0;
 };

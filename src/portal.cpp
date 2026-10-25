@@ -47,6 +47,10 @@ bool ConfigPortal::begin(const Settings& defaults, const MqttSettings& mqttDefau
     if (storage_.getBytesLength("settings") == record.size() &&
         storage_.getBytes("settings", record.data(), record.size()) == record.size()) {
       if (!decodeSettings(record, settings_)) Serial.println("Invalid settings record; using defaults.");
+    } else if (storage_.getBytesLength("settings") == LegacySettingsRecord{}.size()) {
+      LegacySettingsRecord previous{};
+      if (storage_.getBytes("settings",previous.data(),previous.size()) != previous.size() ||
+          !decodeSettings(previous,settings_)) Serial.println("Invalid legacy settings; using defaults.");
     } else {
       // Migrate brightness from the first firmware. Network remains in defaults.
       const auto previous = storage_.getUChar("brightness", defaults.brightness);
@@ -203,7 +207,7 @@ std::string ConfigPortal::stateJson() {
   std::string result = "{\"ssid\":" + jsonQuote(current.ssid) + ",\"ntp\":" + jsonQuote(current.ntp) +
     ",\"clock\":" + jsonQuote(status.clock) + ",\"ip\":" + jsonQuote(status.ip) + ",\"csrf\":" + jsonQuote(csrf_) +
     ",\"passwordSet\":" + (current.password[0] ? "true" : "false") +
-    ",\"storageReady\":" + (storageReady_ ? "true" : "false") + numbers;
+    ",\"storageReady\":" + (storageReady_ ? "true" : "false") + numbers + ",\"sleepMinutes\":" + std::to_string(current.sleepMinutes);
   if (status.sampleValid) {
     char values[80];
     std::snprintf(values, sizeof(values), ",\"temperature\":%.1f,\"humidity\":%.1f", status.temperature, status.humidity);
