@@ -320,7 +320,7 @@ void loop() {
     const uint32_t pageKey = showingStartupIp ? StartupIp::pageKey : setupPage ? 1 : (selected.key ? selected.key : rotation.key());
     const uint8_t rows = showingStartupIp || setupPage || wasSetupPage ? 3 : 2;
     // System setup pages replace both rows; message pages preserve the clock.
-    display.page(showingStartupIp ? startupIp.frame() : selected.frame, pageKey, now,
+    display.page(showingStartupIp ? startupIp.frame(portal.accessKey()) : selected.frame, pageKey, now,
                  !hadSample && aht.environment().valid && ordinaryEligible && rotation.page() != ContentPage::date,
                  rows, showingStartupIp ? 0 : burnInShift.offset(now));
     messageOnScreen = selected.message && display.pageVisible(selected.id, now);

@@ -44,6 +44,8 @@ int main() {
   assert(!ip.update(10,true,true,false,"0.0.0.0"));
   assert(!ip.update(100,true,false,false,"192.168.1.40")); // wait for boot scene
   assert(ip.update(1000,true,true,false,"192.168.1.40"));
+  Frame connection; connection.set(0,"192.168.1.40"); connection.set(1,"KEY:12345678");
+  assert(ip.frame("12345678") == CellFrame(connection));
   assert(ip.update(5000,true,true,false,"192.168.1.40")); // entry not settled: no reading time spent
   assert(ip.update(6000,true,true,true,"192.168.1.40"));
   assert(ip.update(9999,true,true,true,"192.168.1.40"));
@@ -63,17 +65,14 @@ int main() {
 
   Frame indoor; indoor.set(1,"T:24.6C RH:51.2%");
   const auto labelled = labelSources(indoor,ContentPage::indoor);
-  DisplayText label; assert(encodeMessage("室内",label));
-  assert(labelled.rows[1][0] == label.cells[0] && labelled.rows[1][1] == label.cells[1]);
-  assert(labelled.rows[1][3] == Cell::ascii('T'));
+  Frame expectedIndoor; expectedIndoor.set(1,"IN:24.6C RH:51.2%");
+  assert(labelled.rows[1] == CellFrame(expectedIndoor).rows[1]);
   Frame comparison; comparison.set(1,"IN:24.6 OUT:18.0C");
   const auto both = labelSources(comparison,ContentPage::comparison);
-  assert(encodeMessage("室内:24.6 室外:18.0C",label));
-  for (unsigned i=0;i<label.length;++i) assert(both.rows[1][i] == label.cells[i]);
+  assert(both.rows[1] == CellFrame(comparison).rows[1]);
   Frame weather; weather.set(1,"OUT:18.0C CLOUDY");
   const auto outside = labelSources(weather,ContentPage::outdoor);
-  assert(encodeMessage("室外:18.0C CLOUDY",label));
-  for (unsigned i=0;i<label.length;++i) assert(outside.rows[1][i] == label.cells[i]);
+  assert(outside.rows[1] == CellFrame(weather).rows[1]);
 
   Port port; DisplayService<Port> screen(port,Motion::off,0,true);
   screen.page(frame,3,0); screen.begin(2); screen.tick(0); screen.tick(1);

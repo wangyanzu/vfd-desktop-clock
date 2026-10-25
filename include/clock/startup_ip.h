@@ -19,8 +19,10 @@ class StartupIp {
     if (timing_ && elapsed(now,shownAt_,4000)) { done_=true; return false; }
     return true;
   }
-  CellFrame frame() const {
-    CellFrame content; content.setAscii(0,"WiFi connected"); content.setAscii(1,address_); return content;
+  CellFrame frame(const char* accessKey) const {
+    CellFrame content; content.setAscii(0,address_);
+    char key[21]; std::snprintf(key,sizeof(key),"KEY:%.8s",accessKey ? accessKey : "");
+    content.setAscii(1,key); return content;
   }
  private:
   char address_[16]{};

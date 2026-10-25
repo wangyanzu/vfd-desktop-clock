@@ -46,7 +46,7 @@
       <section class="setting-section" aria-labelledby="rotation-title"><div class="section-heading"><span class="number">04</span><div><h2 id="rotation-title">内容轮播</h2><p>时间保持在第一行。第二行依次展示所选内容，消息、配网和睡眠期间暂停。</p></div></div>
         <div class="inputs">
           <div class="field wide"><p class="field-label" id="rotation-pages-label">显示内容</p><div class="page-options" role="group" aria-labelledby="rotation-pages-label">
-            <label class="page-option" for="page-indoor"><input type="checkbox" id="page-indoor" value="2"><span>室内温湿度<small>T:24.6C RH:51.2%</small></span></label>
+            <label class="page-option" for="page-indoor"><input type="checkbox" id="page-indoor" value="2"><span>室内温湿度<small>IN:24.6C RH:51.2%</small></span></label>
             <label class="page-option" for="page-temperature"><input type="checkbox" id="page-temperature" value="4"><span>独立温度<small>TEMP: 24.6C</small></span></label>
             <label class="page-option" for="page-humidity"><input type="checkbox" id="page-humidity" value="8"><span>独立湿度<small>HUMIDITY: 51.2%</small></span></label>
             <label class="page-option" for="page-outdoor"><input type="checkbox" id="page-outdoor" value="16"><span>室外天气<small>OUT:18.0C CLOUDY</small></span></label>
@@ -61,7 +61,7 @@
   </form>
   <section class="weather-overview" aria-labelledby="comparison-title">
     <p class="eyebrow">INDOOR / OUTDOOR</p><h2 id="comparison-title">室内外，一眼看清</h2>
-    <div class="comparison-grid"><div><span>室内温度 · 传感器</span><strong id="indoor-comparison">—</strong><small id="indoor-comparison-humidity">湿度 —</small></div><div><span>室外温度 · 天气接口</span><strong id="outdoor-temperature">—</strong><small id="outdoor-comparison-humidity">湿度 —</small></div></div>
+    <div class="comparison-grid"><div><span>IN · 传感器</span><strong id="indoor-comparison">—</strong><small id="indoor-comparison-humidity">湿度 —</small></div><div><span>OUT · 天气接口</span><strong id="outdoor-temperature">—</strong><small id="outdoor-comparison-humidity">湿度 —</small></div></div>
     <p id="weather-status" role="status">天气未配置</p><p id="weather-observation">等待天气数据</p><small>并列显示室内外实测与天气数据；旧数据会标记，室内外湿度缺失时分别显示不可用。</small>
   </section>
   <form id="weather-settings"><fieldset id="weather-fields" disabled>
