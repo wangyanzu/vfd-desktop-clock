@@ -40,6 +40,7 @@ class ConfigPortal {
   void publish(const DeviceStatus& status);
   bool cycleBrightness();
   bool takeMessageAck(uint32_t& id);
+  bool sensorValid() { portENTER_CRITICAL(&mux_); bool valid=status_.sampleValid; portEXIT_CRITICAL(&mux_); return valid; }
   const char* accessKey() const { return accessKey_; }
  private:
   enum class SaveResult { ok, unavailable };

@@ -1,3 +1,4 @@
+#include "w4home_client.h"
 #include <Arduino.h>
 #include <HardwareSerial.h>
 #include <WiFi.h>
@@ -147,7 +148,7 @@ void shortPress(uint32_t now, const char* source = "button") {
   if (manual.sleeping()) { sleepPreparation.begin(now); display.sleep(now); }
   else {
     autoPower.restart(now); display.brightness(4);
-    mqtt.pause(false); weather.pause(false); display.wake(now); firstFrame = true;
+    mqtt.pause(false); weather.pause(false); w4home_pause(false); display.wake(now); firstFrame = true;
   }
 }
 void enterManualSleep() {
@@ -155,11 +156,11 @@ void enterManualSleep() {
   if (!config::hasButton || !manual.sleeping()) return;
   const uint32_t now = millis();
   const bool drained = display.asleepAndDrained();
-  if (drained) { mqtt.pause(true); weather.pause(true); }
-  const auto preparation = sleepPreparation.poll(now, digitalRead(config::button) == LOW, drained, mqtt.paused() && weather.paused());
+  if (drained) { mqtt.pause(true); weather.pause(true); w4home_pause(true); }
+  const auto preparation = sleepPreparation.poll(now, digitalRead(config::button) == LOW, drained, mqtt.paused() && weather.paused() && w4home_idle());
   if (preparation == SleepPreparation::Result::timedOut) {
     autoPower.restart(now); display.brightness(4);
-    manual.wake(now); mqtt.pause(false); weather.pause(false); display.wake(now); firstFrame = true;
+    manual.wake(now); mqtt.pause(false); weather.pause(false); w4home_pause(false); display.wake(now); firstFrame = true;
     Serial.println("POWER: sleep preparation timed out; restoring awake mode");
     return;
   }
@@ -184,7 +185,7 @@ void enterManualSleep() {
   manual.wake(resumedAt); // consume the wake press, including long holds/bounce
   if (radioStopAttempted) network.resume(portal.settings(), resumedAt);
   if (sensorEnabled) aht.resume(resumedAt);
-  mqtt.pause(false); weather.pause(false);
+  mqtt.pause(false); weather.pause(false); w4home_pause(false);
   display.wake(resumedAt);
   firstFrame = true;
   if (result == ESP_OK) Serial.println("POWER: button wake, restoring display and network");
@@ -245,6 +246,7 @@ void setup() {
   }
   if (!portalReady) Serial.println("Configuration service unavailable.");
   applyClock(applied);
+  w4home_start();
   appliedMqtt = portal.mqttSettings();
   if (!mqtt.begin(appliedMqtt)) Serial.println("MQTT configuration or task initialization failed.");
   appliedWeather = portal.weatherSettings();
@@ -293,7 +295,7 @@ void loop() {
     }
     if (event == Button::Event::longPress) {
       autoPower.restart(now); display.brightness(4);
-      manual.wake(now); mqtt.pause(false); weather.pause(false); display.wake(now); network.requestSetup();
+      manual.wake(now); mqtt.pause(false); weather.pause(false); w4home_pause(false); display.wake(now); network.requestSetup();
     }
   }
   if (displayReady && config::hasButton && !manual.sleeping() && !messages.hasCritical() && autoPower.sleepDue(now,current.sleepMinutes)) {
@@ -417,4 +419,9 @@ void loop() {
   display.tick(now);
   enterManualSleep();
   delay(1);
+}
+
+extern "C" void w4home_status(char *output, size_t capacity) {
+  std::snprintf(output, capacity, "{\"uptime\":%lu,\"rssi\":%d,\"sensorValid\":%s}",
+    static_cast<unsigned long>(millis()/1000), WiFi.RSSI(), portal.sensorValid()?"true":"false");
 }
