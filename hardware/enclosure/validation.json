@@ -1,0 +1,32 @@
+{
+  "body": {
+    "watertight": true,
+    "triangles": 1526,
+    "bounds_mm": [
+      232.0,
+      68.0,
+      45.6
+    ],
+    "volume_cm3": 91.88
+  },
+  "lid": {
+    "watertight": true,
+    "triangles": 2972,
+    "bounds_mm": [
+      232.0,
+      68.0,
+      29.1
+    ],
+    "volume_cm3": 39.26
+  },
+  "stand": {
+    "watertight": true,
+    "triangles": 856,
+    "bounds_mm": [
+      232.0,
+      74.0,
+      19.0
+    ],
+    "volume_cm3": 77.48
+  }
+}

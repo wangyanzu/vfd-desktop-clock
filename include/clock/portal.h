@@ -33,6 +33,10 @@ class ConfigPortal {
  public:
   bool begin(const Settings& defaults, const MqttSettings& mqttDefaults = MqttSettings{});
   bool start();
+  bool localStage(const char*,const char*,const char*);
+  bool localCancel();
+  bool localClear();
+  void localTick(bool connected);
   Settings settings();
   MqttSettings mqttSettings();
   RotationSettings rotationSettings();

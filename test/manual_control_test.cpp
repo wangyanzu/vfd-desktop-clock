@@ -60,10 +60,10 @@ int main() {
   click(control, 5100); assert(control.sleeping());
   control.wake(6000); control.update(false, 6000); control.update(false, 6030);
   control.update(true, 6100); control.update(true, 6130);
-  assert(control.update(true, 9130) == Button::Event::longPress);
+  assert(control.update(true, 11130) == Button::Event::none);
   assert(!control.sleeping()); // long press belongs to setup, never power-off
-  control.update(false, 9140);
-  assert(control.update(false, 9170) == Button::Event::none);
+  control.update(false, 11140);
+  assert(control.update(false, 11170) == Button::Event::longPress);
   ManualControl wrapped;
   wrapped.sleep(); wrapped.wake(UINT32_MAX - 10);
   wrapped.update(true, UINT32_MAX - 5); wrapped.update(false, 10); wrapped.update(false, 40);

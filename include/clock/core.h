@@ -74,12 +74,8 @@ class Button {
       if (stable_) { pressedAt_ = now; longSent_ = false; }
       else if (!longSent_) {
         // A delayed polling cycle must not turn a long hold into a short click.
-        return elapsed(now, pressedAt_, 3000) ? Event::longPress : Event::shortPress;
+        return elapsed(now, pressedAt_, 5000) ? Event::longPress : Event::shortPress;
       }
-    }
-    if (stable_ && !longSent_ && elapsed(now, pressedAt_, 3000)) {
-      longSent_ = true;
-      return Event::longPress;
     }
     return Event::none;
   }

@@ -30,13 +30,11 @@ class NetworkPolicy {
       attemptedAt_ = now;
       retryInterval_ = retryInterval_ < 30000 ? retryInterval_ * 2 : 60000;
     }
-    if (setup_ && (elapsed(now, setupAt_, 600000) ||
-                   (connected && elapsed(now, connectedAt_, 60000)))) {
+    if (setup_ && (hasCredentials_ && elapsed(now, setupAt_, 300000))) {
       actions.closeSetup = true;
       setup_ = false; setupAllowed_ = false;
     }
-    if (!setup_ && setupAllowed_ && (requested_ || !hasCredentials_ ||
-                                    (!connected && elapsed(now, disconnectedAt_, 30000)))) {
+    if (!setup_ && setupAllowed_ && (requested_ || !hasCredentials_)) {
       actions.openSetup = true;
       setup_ = true; setupAt_ = now;
       // Explicit requests while connected get a fresh grace period.

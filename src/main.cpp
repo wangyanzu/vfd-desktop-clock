@@ -242,7 +242,7 @@ void setup() {
   if (portalReady) {
     network.begin(applied, portal.accessKey(), millis());
     portalReady = portal.start();
-    Serial.printf("Settings login: admin; device access key: %s\n", portal.accessKey());
+    Serial.println("Local setup: connect to the displayed hotspot; automatic platform enrollment.");
   }
   if (!portalReady) Serial.println("Configuration service unavailable.");
   applyClock(applied);
@@ -257,6 +257,7 @@ void loop() {
   const uint32_t now = millis();
   const Settings current = portal.settings();
   if (portalReady) network.tick(current, now);
+  portal.localTick(network.connected());
   if (current.utcOffsetMinutes != applied.utcOffsetMinutes || std::strcmp(current.ntp, applied.ntp) != 0) applyClock(current);
   if (sensorEnabled) {
     aht.tick(now);
@@ -295,7 +296,7 @@ void loop() {
     }
     if (event == Button::Event::longPress) {
       autoPower.restart(now); display.brightness(4);
-      manual.wake(now); mqtt.pause(false); weather.pause(false); w4home_pause(false); display.wake(now); network.requestSetup();
+      manual.wake(now); mqtt.pause(false); weather.pause(false); w4home_pause(false); display.wake(now); w4home_resume(); network.requestSetup();
     }
   }
   if (displayReady && config::hasButton && !manual.sleeping() && !messages.hasCritical() && autoPower.sleepDue(now,current.sleepMinutes)) {

@@ -6,6 +6,7 @@ inline constexpr char index[] = R"VFDWEB(<!doctype html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><title>VFD · 桌面时钟</title><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head>
 <body>
 <main>
+  <p id="control-center" role="status">控制中心 · 等待连接</p>
   <header><a class="brand" href="/">VFD<span>DESKTOP CLOCK / 01</span></a><span class="tag">设备设置</span></header>
   <section class="overview" aria-labelledby="title">
     <div class="intro"><p class="eyebrow">YOUR EVERYDAY INSTRUMENT</p><h1 id="title">把时间，<br>调到刚刚好。</h1><p class="description">连接网络，选择舒适的亮度。<br>设置保存在时钟里，重启后依然生效。</p><p id="connection" class="connection" role="status">正在读取设备状态…</p></div>
@@ -166,6 +167,11 @@ inline constexpr char app[] = R"VFDWEB('use strict';
 
     byId('connection').textContent = state.connected ? '网络已连接 · 设置可随时调整' : state.setupActive ? '配网热点已开启 · 等待连接家庭网络' : '网络离线 · 时钟继续运行';
     byId('network-label').textContent = state.connected ? 'ONLINE' : 'OFFLINE';
+    const center = byId('control-center');
+    if (center) {
+      const phases = {waiting_network:'等待网络', waiting_time:'等待校时', enrolling:'接入中', syncing:'同步中', ready:'接入完成', retrying:'暂时无法连接，稍后自动重试', recovery:'认证或设备状态被拒绝，请联系管理员', binding_error:'服务绑定不匹配，请通过本地维护恢复', storage_error:'身份存储异常，请通过本地维护恢复'};
+      center.textContent = `控制中心 · ${phases[state.w4home?.state] || '等待连接'}`;
+    }
     byId('clock').textContent = state.clock || '--:--:--';
     byId('temperature').textContent = state.temperature === null ? '—' : `${state.temperature.toFixed(1)}°C`;
     byId('humidity').textContent = state.humidity === null ? '—' : `${state.humidity.toFixed(1)}%`;

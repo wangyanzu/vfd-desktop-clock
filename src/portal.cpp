@@ -1,4 +1,6 @@
+#include "w4home_client.h"
 #include "clock/portal.h"
+#include "w4home/idf_portal.h"
 #include "clock/messages.h"
 #include "clock/web_assets.h"
 #include <Arduino.h>
@@ -7,6 +9,7 @@
 #include <algorithm>
 
 namespace clockapp {
+static ConfigPortal *localPortal;
 namespace {
 void randomHex(char* output, size_t length) {
   const char hex[] = "0123456789ABCDEF";
@@ -80,6 +83,10 @@ bool ConfigPortal::begin(const Settings& defaults, const MqttSettings& mqttDefau
     randomAccessKey(accessKey_);
     if (!storageReady_ || storage_.putString("access", accessKey_) != 8) return false;
   }
+  SettingsRecord trial{};
+  if(storage_.getBytesLength("localTrial")==trial.size()&&storage_.getBytes("localTrial",trial.data(),trial.size())==trial.size()){
+    Settings staged{};if(decodeSettings(trial,staged)){std::snprintf(settings_.ssid,sizeof(settings_.ssid),"%s",staged.ssid);std::snprintf(settings_.password,sizeof(settings_.password),"%s",staged.password);}
+  }
   randomHex(csrf_, 32);
   const std::string credentials = std::string("admin:") + accessKey_;
   unsigned char encoded[64]{};
@@ -118,7 +125,13 @@ WeatherSettings ConfigPortal::weatherSettings() {
 }
 ConfigPortal::SaveResult ConfigPortal::saveLocked(const Settings& next) {
   if (!storageReady_ || !validSettings(next)) return SaveResult::unavailable;
-  const auto record = encodeSettings(next);
+  Settings stable=next;
+  if(storage_.isKey("localTrial")){
+    SettingsRecord saved{};Settings original{};
+    if(storage_.getBytes("localBackup",saved.data(),saved.size())!=saved.size()||!decodeSettings(saved,original))return SaveResult::unavailable;
+    std::snprintf(stable.ssid,sizeof(stable.ssid),"%s",original.ssid);std::snprintf(stable.password,sizeof(stable.password),"%s",original.password);
+  }
+  const auto record = encodeSettings(stable);
   // NVS commits one complete versioned blob. Publish only after success.
   if (storage_.putBytes("settings", record.data(), record.size()) != record.size()) return SaveResult::unavailable;
   portENTER_CRITICAL(&mux_);
@@ -143,7 +156,7 @@ bool ConfigPortal::start() {
   config.lru_purge_enable = true;
   config.recv_wait_timeout = 2;
   config.send_wait_timeout = 2;
-  config.max_uri_handlers = 10;
+  config.max_uri_handlers = 18;
   if (httpd_start(&server_, &config) != ESP_OK) return false;
   const char* paths[] = {"/", "/style.css", "/app.js", "/api/state", "/api/settings", "/api/messages/ack", "/api/mqtt", "/api/rotation", "/api/weather"};
   for (size_t i = 0; i < 9; ++i) {
@@ -156,7 +169,15 @@ bool ConfigPortal::start() {
       httpd_stop(server_); server_ = nullptr; return false;
     }
   }
-  return true;
+  localPortal=this;
+  const w4local_ops_t ops={
+   [](){portENTER_CRITICAL(&localPortal->mux_);bool active=localPortal->status_.setupActive;portEXIT_CRITICAL(&localPortal->mux_);return active;},
+   [](const char *ssid,const char *password,const char *origin){return localPortal->localStage(ssid,password,origin);},
+   [](){return localPortal->localCancel();},[](){return localPortal->localClear();},
+   [](cJSON *j){char origin[192];bool ready=false,recovery=false;w4home_local_state(origin,sizeof(origin),&ready,&recovery);portENTER_CRITICAL(&localPortal->mux_);bool connected=localPortal->status_.connected;portEXIT_CRITICAL(&localPortal->mux_);cJSON_AddBoolToObject(j,"configured",ready);cJSON_AddBoolToObject(j,"wifiConnected",connected);cJSON_AddBoolToObject(j,"authRecoveryRequired",recovery);cJSON_AddBoolToObject(j,"pendingSetup",localPortal->storage_.isKey("localTrial"));cJSON_AddBoolToObject(j,"serverConfigured",true);cJSON_AddStringToObject(j,"server",origin);},
+   []()->const char*{static char origin[192];bool ready=false,recovery=false;w4home_local_state(origin,sizeof(origin),&ready,&recovery);return origin;}
+  };
+  return w4local_register(server_,&ops)==ESP_OK;
 }
 esp_err_t ConfigPortal::dispatch(httpd_req_t* request) {
   return static_cast<ConfigPortal*>(request->user_ctx)->handle(request);
@@ -198,6 +219,8 @@ std::string ConfigPortal::stateJson() {
   portENTER_CRITICAL(&mux_);
   status = status_; current = settings_; mqtt = mqttSettings_; rotation = rotationSettings_; weather = weatherSettings_;
   portEXIT_CRITICAL(&mux_);
+  char center[160];
+  w4home_diagnostics(center, sizeof(center));
   char numbers[220];
   std::snprintf(numbers, sizeof(numbers),
     ",\"brightness\":%u,\"offset\":%d,\"connected\":%s,\"setupActive\":%s,\"timeValid\":%s,\"sensorEnabled\":%s,\"sampleFresh\":%s,\"uptime\":%lu",
@@ -208,6 +231,7 @@ std::string ConfigPortal::stateJson() {
     ",\"clock\":" + jsonQuote(status.clock) + ",\"ip\":" + jsonQuote(status.ip) + ",\"csrf\":" + jsonQuote(csrf_) +
     ",\"passwordSet\":" + (current.password[0] ? "true" : "false") +
     ",\"storageReady\":" + (storageReady_ ? "true" : "false") + numbers + ",\"sleepMinutes\":" + std::to_string(current.sleepMinutes);
+  result += ",\"w4home\":" + std::string(center);
   if (status.sampleValid) {
     char values[80];
     std::snprintf(values, sizeof(values), ",\"temperature\":%.1f,\"humidity\":%.1f", status.temperature, status.humidity);
@@ -248,6 +272,7 @@ std::string ConfigPortal::stateJson() {
   return result + "}";
 }
 esp_err_t ConfigPortal::handle(httpd_req_t* request) {
+  if(std::strcmp(request->uri,"/")==0&&w4local_on_ap(request))return w4local_page(request);
   if (!authorized(request)) return ESP_OK;
   // No query parameters are accepted: they must never become settings input.
   if (std::strchr(request->uri, '?')) return error(request, "400 Bad Request", "该接口不接受查询参数。");
@@ -371,10 +396,43 @@ esp_err_t ConfigPortal::update(httpd_req_t* request) {
   if (xSemaphoreTake(writer_, pdMS_TO_TICKS(1000)) != pdTRUE) return error(request, "503 Service Unavailable", "配置正忙，请重试。");
   Settings next;
   const char* validation = applySettings(settings(), input, next);
+  if(!validation&&!sameNetwork(next,settings())){xSemaphoreGive(writer_);return error(request,"403 Forbidden","网络只在设备热点配网页中维护。");}
   const auto result = validation ? SaveResult::unavailable : saveLocked(next);
   xSemaphoreGive(writer_);
   if (validation) return error(request, "400 Bad Request", validation);
   if (result != SaveResult::ok) return error(request, "503 Service Unavailable", "保存失败，当前配置未改变。");
   return send(request, "application/json; charset=utf-8", "{\"ok\":true}");
 }
+bool ConfigPortal::localStage(const char *ssid,const char *password,const char *origin){
+ if(storage_.isKey("localTrial")||!w4home_idle()||!w4home_wifi_valid(ssid,password)||xSemaphoreTake(writer_,pdMS_TO_TICKS(1000))!=pdTRUE)return false;
+ Settings next=settings();bool ok=true;
+ if(!storage_.isKey("localTrial")){auto backup=encodeSettings(next);ok=storage_.putBytes("localBackup",backup.data(),backup.size())==backup.size();}
+ std::snprintf(next.ssid,sizeof(next.ssid),"%s",ssid);std::snprintf(next.password,sizeof(next.password),"%s",password);auto trial=encodeSettings(next);
+ if(ok)ok=storage_.putBytes("localTrial",trial.data(),trial.size())==trial.size()&&storage_.putString("localOrigin",origin)==std::strlen(origin);
+ if(ok)ok=w4home_service_request(origin,false);
+ if(ok){portENTER_CRITICAL(&mux_);settings_=next;portEXIT_CRITICAL(&mux_);}
+ else {storage_.remove("localTrial");storage_.remove("localBackup");}
+ xSemaphoreGive(writer_);return ok;
+}
+bool ConfigPortal::localCancel(){
+ if(xSemaphoreTake(writer_,pdMS_TO_TICKS(1000))!=pdTRUE)return false;
+ bool ok=w4home_service_request(nullptr,true);
+ if(ok&&storage_.isKey("localTrial")){
+  SettingsRecord raw{};Settings old{};ok=storage_.getBytes("localBackup",raw.data(),raw.size())==raw.size()&&decodeSettings(raw,old);
+  if(ok){auto next=settings();std::snprintf(next.ssid,sizeof(next.ssid),"%s",old.ssid);std::snprintf(next.password,sizeof(next.password),"%s",old.password);ok=saveLocked(next)==SaveResult::ok;}
+  if(ok)ok=storage_.remove("localTrial")&&storage_.remove("localBackup");
+ }
+ xSemaphoreGive(writer_);return ok;
+}
+bool ConfigPortal::localClear(){
+ if(!localCancel()||xSemaphoreTake(writer_,pdMS_TO_TICKS(1000))!=pdTRUE)return false;
+ auto next=settings();next.ssid[0]=next.password[0]=0;bool ok=saveLocked(next)==SaveResult::ok;xSemaphoreGive(writer_);return ok;
+}
+void ConfigPortal::localTick(bool connected){
+ if(!connected||!storage_.isKey("localTrial")||xSemaphoreTake(writer_,0)!=pdTRUE)return;
+ char origin[192];bool ready=false,recovery=false;w4home_local_state(origin,sizeof(origin),&ready,&recovery);
+ if(ready&&storage_.getString("localOrigin","")==origin){auto record=encodeSettings(settings());if(storage_.putBytes("settings",record.data(),record.size())==record.size()){storage_.remove("localTrial");storage_.remove("localBackup");}}
+ xSemaphoreGive(writer_);
+}
+
 }

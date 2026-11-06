@@ -68,6 +68,11 @@
 
     byId('connection').textContent = state.connected ? '网络已连接 · 设置可随时调整' : state.setupActive ? '配网热点已开启 · 等待连接家庭网络' : '网络离线 · 时钟继续运行';
     byId('network-label').textContent = state.connected ? 'ONLINE' : 'OFFLINE';
+    const center = byId('control-center');
+    if (center) {
+      const phases = {waiting_network:'等待网络', waiting_time:'等待校时', enrolling:'接入中', syncing:'同步中', ready:'接入完成', retrying:'暂时无法连接，稍后自动重试', recovery:'认证或设备状态被拒绝，请联系管理员', binding_error:'服务绑定不匹配，请通过本地维护恢复', storage_error:'身份存储异常，请通过本地维护恢复'};
+      center.textContent = `控制中心 · ${phases[state.w4home?.state] || '等待连接'}`;
+    }
     byId('clock').textContent = state.clock || '--:--:--';
     byId('temperature').textContent = state.temperature === null ? '—' : `${state.temperature.toFixed(1)}°C`;
     byId('humidity').textContent = state.humidity === null ? '—' : `${state.humidity.toFixed(1)}%`;

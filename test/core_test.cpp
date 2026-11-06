@@ -43,8 +43,8 @@ int main() {
   button.update(false, 200);
   assert(button.update(false, 230) == Button::Event::shortPress);
   button.update(true, 300); button.update(true, 330);
-  assert(button.update(true, 3330) == Button::Event::longPress);
-  button.update(false, 3400);
-  assert(button.update(false, 3430) == Button::Event::none);
+  assert(button.update(true, 5330) == Button::Event::none);
+  button.update(false, 5400);
+  assert(button.update(false, 5430) == Button::Event::longPress);
   std::cout << "PASS: time rollover, frame rendering, VFD bytes/diff and button debounce\n";
 }
