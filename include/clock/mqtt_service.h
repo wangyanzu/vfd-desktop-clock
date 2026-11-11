@@ -1,7 +1,6 @@
 #pragma once
-#include <atomic>
 #include <array>
-#include <freertos/FreeRTOS.h>
+#include "clock/runtime.h"
 #include "clock/pending_messages.h"
 #include "clock/mqtt_settings.h"
 
@@ -25,6 +24,10 @@ class MqttService {
   bool begin(const MqttSettings& settings);
   void configure(const MqttSettings& settings);
   bool receive(IncomingMessage& message);
+#if defined(ARDUINO_ARCH_ESP8266)
+  void poll();
+  void releaseTls();
+#endif
   MqttState state() const { return state_.load(); }
   uint32_t dropped() const { return dropped_.load(); }
   uint32_t duplicates() const { return duplicates_.load(); }
@@ -32,15 +35,20 @@ class MqttService {
   void pause(bool value) { pauseRequested_ = value; }
   bool paused() const { return paused_.load() || !started_; }
  private:
+  struct Worker;
+#if defined(ARDUINO_ARCH_ESP8266)
+  Worker* worker_ = nullptr;  // lifetime of the firmware
+#else
   static void task(void* self);
   void run();
+#endif
   MqttSettings desired_{};
-  portMUX_TYPE mux_ = portMUX_INITIALIZER_UNLOCKED;
+  StateMutex mux_;
   uint32_t generation_ = 0;
   PendingMessages incoming_;
   bool started_ = false;
-  std::atomic<MqttState> state_{MqttState::disabled};
-  std::atomic<uint32_t> dropped_{0}, evicted_{0}, duplicates_{0};
-  std::atomic<bool> pauseRequested_{false}, paused_{false};
+  StateValue<MqttState> state_{MqttState::disabled};
+  StateValue<uint32_t> dropped_{0}, evicted_{0}, duplicates_{0};
+  StateValue<bool> pauseRequested_{false}, paused_{false};
 };
 }

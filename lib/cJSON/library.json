@@ -1,0 +1,8 @@
+{
+  "name": "cJSON",
+  "version": "1.7.19",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/DaveGamble/cJSON" },
+  "frameworks": "arduino",
+  "platforms": "espressif8266"
+}

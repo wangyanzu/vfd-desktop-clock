@@ -1,8 +1,32 @@
 # VFD 桌面时钟
 
-基于合宙 LuatOS CORE-ESP32-C3、M202MD28AA 20×2 VFD 和 AHT10 的桌面时钟。支持网页配网与管理、室内外温度显示、心知天气、MQTT 分级消息、GPIO3 确认及轻睡眠。
+适用于 ESP8266MOD（4 MB Flash 的 ESP-12E / ESP-12F）和合宙 LuatOS CORE-ESP32-C3。使用 M202MD28AA 20×2 VFD 和 AHT10，支持网络校时、网页配网、室内外温湿度、心知天气、MQTT 分级消息、按键确认和轻睡眠。
 
-当前固件已在串口环境编译、烧录并通过写入校验；消息解析、队列、计时和网页交互已有自动测试。最近实机监测中天气接口正常、无异常重启，但 **AHT10 仍出现 I²C 写入失败，室内温湿度可靠性尚未验收通过**。固件保留自动重试与总线恢复，不能将这些机制视为传感器已经稳定。
+ESP8266 固件已通过交叉编译，尚未在实物烧录验证。历史 ESP32-C3 实机已通过烧录校验，天气接口正常；AHT10 曾出现 I²C 写入失败，实机传感器可靠性尚未验收。
+
+## ESP8266MOD 接线与烧录
+
+以下为模块 GPIO 编号，括号中为 NodeMCU 常见丝印。默认按 4 MB Flash、DIO 配置；若模块容量不同，请先核对板型及 Flash 布局。
+
+| 外设 | ESP8266 接线 |
+| --- | --- |
+| VFD 改装 UART RX | **GPIO2 (D4)**，UART1 TX，9600 baud / 8N1；只接 RX 和共地 |
+| AHT10 | SDA → GPIO4 (D2)，SCL → GPIO5 (D1)，VCC → 3.3 V，GND 共地 |
+| 瞬时按钮 | GPIO14 (D5) 接按钮，另一端接 GND，固件使用内部上拉 |
+| 外置 USB 转串口（裸模块） | 3.3 V 电平；适配器 TX → GPIO3、RX → GPIO1，GND 共地 |
+
+GPIO2 必须在复位时保持高电平，VFD RX 不应拉低此引脚。裸模块需要将 EN、RST 上拉，正常启动时 GPIO0 上拉、GPIO15 下拉。进入串口下载模式时，将 GPIO0 拉低后复位；烧录完成后解除 GPIO0 接地再复位。VFD 沿用原屏幕供电，和模块共地。参考 [Espressif 启动引脚说明](https://docs.espressif.com/projects/esptool/en/latest/esp8266/advanced-topics/boot-mode-selection.html)。
+
+```sh
+pio run -e esp8266mod
+pio run -e esp8266mod -t upload --upload-port /dev/cu.YOUR_SERIAL_PORT
+```
+
+Apple Silicon Mac 可将命令中的环境名换为 `esp8266mod-macos-arm64`，使用原生工具链。上传及日志波特率均为 115200。已有 `include/local_config.h` 时，移除旧版中 GPIO0 的 VFD 和 GPIO3 的按钮覆盖值，或改成上述 ESP8266 引脚。I²C 默认仍为 GPIO4 / GPIO5。
+
+首次配网：用屏幕的 8 位 `KEY` 连接 `W4VFD-Clock-xxxx`，打开 `http://192.168.4.1`，用 `admin` 和同一 `KEY` 登录。在管理页保存家庭 Wi-Fi 后，通过屏幕显示的局域网 IP 重新打开管理页。更换 Wi-Fi 时长按设备按钮开启热点，再从热点页面修改。配置保存在模块的 LittleFS，ESP32-C3 的 NVS 配置需重新输入。
+
+ESP8266 版独立运行本地管理；W4Home 自动登记仍仅适用于已在服务端登记型号的 ESP32-C3 版。ESP8266 的天气和 MQTT 使用证书校验；拉取天气时会短暂断开 TLS MQTT，随后自动重连。联网、TLS 握手和天气请求可能短暂延迟动画与按键处理。私有 MQTT 服务可在 `local_config.h` 通过 `CLOCK_ESP8266_MQTT_CA_PEM` 指定其 CA 证书（PEM 字符串）。
 
 ## 显示与轮播
 
@@ -48,13 +72,13 @@
 - 严重消息不自动淘汰；全满为严重消息时拒收新消息。保留的条目仍按到达顺序显示，**不会按级别抢占或重新排序**。
 - 网页分别显示待确认数量、拒收、淘汰和重复合并计数。队列中存在严重消息时暂缓自动休眠；确认严重消息后重新开始省电计时。
 
-短按 GPIO3 优先确认消息；也可在管理页点击“确认屏幕当前消息”，或通过串口发送 `a`。仅确认已经完成入场并排空 UART 的消息，旧消息 ID 不会误清下一条。手动确认后显示 1 秒反馈；自动清除则直接进入下一条或恢复普通页面。
+短按设备按钮优先确认消息；也可在管理页点击“确认屏幕当前消息”，或通过串口发送 `a`。仅确认已经完成入场并排空 UART 的消息，旧消息 ID 不会误清下一条。手动确认后显示 1 秒反馈；自动清除则直接进入下一条或恢复普通页面。
 
 MQTT 默认关闭，管理页可配置巴法云或其他兼容服务器、端口、TLS、主题和凭据。TLS 保持证书验证，校时后连接，不自动降级为明文。确认仅删除本机队列，不发送业务回执、不删除服务器 retained 消息；队列、播放进度和计数都只在 RAM 中，断电或重启后丢失。详见 [消息接入说明](docs/mqtt-messages.md)。
 
 ## 按钮与省电
 
-GPIO3 与 GND 之间接瞬时按钮，使用内部上拉：
+GPIO3（ESP32-C3）或 GPIO14（ESP8266）与 GND 之间接瞬时按钮，使用内部上拉：
 
 | 操作 | 行为 |
 | --- | --- |
@@ -67,7 +91,7 @@ GPIO3 与 GND 之间接瞬时按钮，使用内部上拉：
 
 - 15 分钟、30 分钟。
 - 1、2、3、4、5、6、7、8、9 小时。
-- 永不自动休眠；仍可通过 GPIO3 手动休眠。
+- 永不自动休眠；仍可通过设备按钮手动休眠。
 
 计时从上电或唤醒开始，网页轮询、普通消息和天气更新不延长亮屏时间。修改休眠时间沿用本次亮屏计时，缩短至已经超过的时长会触发休眠；严重消息按上一节规则暂缓自动休眠。
 
@@ -81,7 +105,7 @@ GPIO3 与 GND 之间接瞬时按钮，使用内部上拉：
 
 AHT10 每 5 秒采样，使用 50kHz I²C 和 20ms 单次事务超时。冷启动与唤醒后初始化，转换期间短重试，持续故障按 2 / 4 / 8 / 16 / 30 秒退避，必要时软复位、重载校准和恢复总线。网页显示错误与失败、恢复计数；串口 `t` 只读缓存，不插入额外探测事务。详见 [传感器恢复与排障](docs/sensor-reliability.md)。
 
-## 网页配网与本地存储
+## ESP32-C3 网页配网与本地存储
 
 1. 无网络配置时，连接设备热点 `W4VFD-Clock-xxxx`，后缀为 MAC 地址后四位。
 2. 热点密码与管理密码均为屏幕显示的 8 位数字 `KEY`，可包含前导零。启动串口日志也会输出该密钥，家庭 Wi-Fi 密码不输出。
@@ -104,7 +128,7 @@ AHT10 每 5 秒采样，使用 50kHz I²C 和 20ms 单次事务超时。冷启�
 
 网页不回显已保存的密码和密钥，支持保留、替换、清除等明确操作。接口使用 HTTP Basic、CSRF 校验和同源策略；服务为本地 HTTP，NVS 未启用机密数据加密，适用于可信局域网。当前没有管理密码重置页面，清除 NVS 会一并删除配置。
 
-## 硬件与构建
+## ESP32-C3 硬件与构建
 
 | 硬件 / 配置 | 默认值 |
 | --- | --- |
@@ -118,7 +142,7 @@ AHT10 每 5 秒采样，使用 50kHz I²C 和 20ms 单次事务超时。冷启�
 
 如需覆盖编译默认值，复制 `include/local_config.example.h` 为 `include/local_config.h`。该文件已被 Git 忽略；含个人凭据的固件不应作为公共固件分发。本地原始 `network-clock.ino` 含历史账号信息，也被忽略；脱敏参考位于 `reference/`，不参与构建。
 
-依赖固定为 `espressif32@8.0.0`、Arduino-ESP32 3.3.12、arduino-mqtt 2.5.3。默认环境适用于外置 USB-UART 连接 UART0 的板型：
+依赖固定为 `espressif32@8.0.0`、Arduino-ESP32 3.3.12、arduino-mqtt 2.5.3。`esp32c3` 环境适用于外置 USB-UART 连接 UART0 的板型：
 
 ```sh
 pio run -e esp32c3
@@ -134,11 +158,11 @@ USB 直接连接 GPIO18/19 的版本使用 `pio run -e esp32c3-usb`。`esp32c3-m
 - `src/main.cpp`：主循环、按键、显示、自动省电及业务调度。
 - `include/clock/messages.h`：8 条消息队列、分级时长、淘汰、滚动与确认。
 - `include/clock/message_payload.h`：有界 JSON 解析、正文和级别校验。
-- `include/clock/pending_messages.h` / `src/mqtt_service.cpp`：4 条临时缓冲及 MQTT 工作任务；解析在锁外完成，缓冲操作在短临界区内完成。
-- `include/clock/settings.h` / `src/portal.cpp`：配置校验、NVS、设备鉴权及网页 API；HTTP 服务在独立任务中运行。
+- `include/clock/pending_messages.h` / `src/mqtt_service.cpp`：4 条临时缓冲及 MQTT 客户端。
+- `include/clock/settings.h` / `src/portal.cpp`：配置校验、持久化、设备鉴权及网页 API。
 - `include/clock/auto_power.h` / `manual_control.h`：省电计时、按键去抖、消息确认与唤醒按键释放保护。
 - `include/clock/aht10.h` / `i2c_recovery.h`：传感器状态机与有界总线恢复。
-- `src/weather_service.cpp`：独立天气任务，网络等待不阻塞显示。
+- `src/weather_service.cpp`：天气更新；ESP32-C3 使用独立任务，ESP8266 在主循环调度。
 - `include/clock/display_service.h` / `rotation.h`：显示与轮播状态机，动画和编码按完整字格处理。
 - `web/`：网页源文件；构建时由 `scripts/embed_web.py` 生成 `include/clock/web_assets.h`，不直接编辑生成文件。
 
@@ -153,8 +177,8 @@ sh scripts/test.sh
 JSON 解析使用与当前 ESP32 SDK 一致的 cJSON 1.7.19 源码测试：
 
 ```sh
-sh scripts/test_message_payload.sh /path/to/cJSON-1.7.19
-sh scripts/test_weather_response.sh /path/to/cJSON-1.7.19
+sh scripts/test_message_payload.sh lib/cJSON
+sh scripts/test_weather_response.sh lib/cJSON
 ```
 
 网页 DOM 测试需要 jsdom 26.1.0，可安装在临时目录；不是设备的生产依赖：
@@ -170,7 +194,7 @@ NODE_PATH=/tmp/vfd-clock-web-test/node_modules node test/animation_preview_test.
 
 `python3 test/web_preview.py` 可启动管理页 fixture 预览。动画预览由实际 `DisplayService` 生成，包含 10 种场景 × 3 档动效。主机与 DOM 测试不能代替实物上的按键手感、消息收发、屏幕观感、功耗及电气稳定性验收。
 
-最近验证：默认 `esp32c3` 固件编译、完整烧录和校验通过；消息 JSON、双队列、网页及动画预览测试通过。实机运行期间未见异常重启、天气返回 HTTP 200；AHT10 当前仍报 I²C 写入失败，未恢复有效读数，需继续排查。
+ESP32-C3 历史验证：`esp32c3` 固件编译、完整烧录和校验通过；消息 JSON、双队列、网页及动画预览测试通过。实机运行期间未见异常重启、天气返回 HTTP 200；AHT10 当前仍报 I²C 写入失败，未恢复有效读数，需继续排查。
 
 ## 尚未实现
 

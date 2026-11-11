@@ -2,14 +2,13 @@
 // Copy to local_config.h. Credentials are never printed by the application.
 #define CLOCK_WIFI_SSID ""
 #define CLOCK_WIFI_PASSWORD ""
-// LuatOS CORE-ESP32-C3 defaults used implicitly by the original aht.begin().
-// Set both to -1 to disable AHT10.
-#define CLOCK_I2C_SDA 4
-#define CLOCK_I2C_SCL 5
-// VFD transmit GPIO from the original working sketch. Receive is unused.
-#define CLOCK_VFD_TX 0
-// Manual sleep/wake: momentary button between GPIO3 and GND. -1 disables it.
-#define CLOCK_BUTTON_PIN 3
+// Board defaults are in clock/config.h. Uncomment only to override.
+// I2C defaults to SDA=4, SCL=5; set both to -1 to disable AHT10.
+// #define CLOCK_I2C_SDA 4
+// #define CLOCK_I2C_SCL 5
+// VFD TX: GPIO2 on ESP8266 (fixed UART1), GPIO0 on ESP32-C3.
+// Button: GPIO14 on ESP8266, GPIO3 on ESP32-C3. Set -1 to disable.
+// #define CLOCK_BUTTON_PIN -1
 
 // 0=off, 1=reduced, 2=standard. These do not affect business behavior.
 #define CLOCK_ANIMATION_LEVEL 2

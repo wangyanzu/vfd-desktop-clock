@@ -4,6 +4,12 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+#if defined(ARDUINO_ARCH_ESP8266)
+static inline void w4home_start(void) {}
+static inline void w4home_resume(void) {}
+static inline void w4home_pause(bool) {}
+static inline bool w4home_idle(void) { return true; }
+#else
 void w4home_start(void);
 bool w4home_service_request(const char*,bool);
 void w4home_resume(void);
@@ -14,6 +20,7 @@ void w4home_pause(bool paused);
 bool w4home_idle(void);
 /* Called on the network worker: read only a synchronized status snapshot. */
 void w4home_status(char *output, size_t capacity);
+#endif
 #ifdef __cplusplus
 }
 #endif

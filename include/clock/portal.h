@@ -1,8 +1,12 @@
 #pragma once
+#include "clock/runtime.h"
+#if defined(ARDUINO_ARCH_ESP8266)
+#include <ESP8266WebServer.h>
+#include "clock/esp8266_storage.h"
+#else
 #include <Preferences.h>
 #include <esp_http_server.h>
-#include <freertos/FreeRTOS.h>
-#include <freertos/semphr.h>
+#endif
 #include "clock/settings.h"
 #include "clock/mqtt_settings.h"
 #include "clock/rotation.h"
@@ -10,6 +14,17 @@
 #include "clock/weather.h"
 
 namespace clockapp {
+#if defined(ARDUINO_ARCH_ESP8266)
+struct PortalRequest {
+  ESP8266WebServer& server;
+  const char* uri;
+  int status = 200;
+};
+using PortalResult = int;
+#else
+using PortalRequest = httpd_req_t;
+using PortalResult = esp_err_t;
+#endif
 struct DeviceStatus {
   bool connected = false, setupActive = false, sensorEnabled = false, sampleFresh = false;
   bool sampleValid = false, timeValid = false;
@@ -33,10 +48,14 @@ class ConfigPortal {
  public:
   bool begin(const Settings& defaults, const MqttSettings& mqttDefaults = MqttSettings{});
   bool start();
+#if defined(ARDUINO_ARCH_ESP8266)
+  void poll() { server_.handleClient(); }
+#else
   bool localStage(const char*,const char*,const char*);
   bool localCancel();
   bool localClear();
   void localTick(bool connected);
+#endif
   Settings settings();
   MqttSettings mqttSettings();
   RotationSettings rotationSettings();
@@ -44,36 +63,43 @@ class ConfigPortal {
   void publish(const DeviceStatus& status);
   bool cycleBrightness();
   bool takeMessageAck(uint32_t& id);
-  bool sensorValid() { portENTER_CRITICAL(&mux_); bool valid=status_.sampleValid; portEXIT_CRITICAL(&mux_); return valid; }
+  bool sensorValid() { mux_.lock(); bool valid=status_.sampleValid; mux_.unlock(); return valid; }
   const char* accessKey() const { return accessKey_; }
  private:
   enum class SaveResult { ok, unavailable };
   SaveResult saveLocked(const Settings& next);
-  static esp_err_t dispatch(httpd_req_t* request);
-  esp_err_t handle(httpd_req_t* request);
-  bool authorized(httpd_req_t* request);
-  bool csrfValid(httpd_req_t* request);
-  esp_err_t send(httpd_req_t* request, const char* type, const char* body);
-  esp_err_t error(httpd_req_t* request, const char* status, const char* message);
+#if !defined(ARDUINO_ARCH_ESP8266)
+  static PortalResult dispatch(PortalRequest* request);
+#endif
+  PortalResult handle(PortalRequest* request);
+  bool authorized(PortalRequest* request);
+  bool csrfValid(PortalRequest* request);
+  PortalResult send(PortalRequest* request, const char* type, const char* body);
+  PortalResult error(PortalRequest* request, const char* status, const char* message);
   std::string stateJson();
-  esp_err_t update(httpd_req_t* request);
-  esp_err_t updateRotation(httpd_req_t* request);
-  esp_err_t updateMqtt(httpd_req_t* request);
-  esp_err_t updateWeather(httpd_req_t* request);
-  bool receiveForm(httpd_req_t* request, std::string& body, size_t maximum);
-  esp_err_t acknowledgeMessage(httpd_req_t* request);
+  PortalResult update(PortalRequest* request);
+  PortalResult updateRotation(PortalRequest* request);
+  PortalResult updateMqtt(PortalRequest* request);
+  PortalResult updateWeather(PortalRequest* request);
+  bool receiveForm(PortalRequest* request, std::string& body, size_t maximum);
+  PortalResult acknowledgeMessage(PortalRequest* request);
   uint32_t pendingMessageAck_ = 0;
 
+#if defined(ARDUINO_ARCH_ESP8266)
+  FlashSettings storage_;
+  ESP8266WebServer server_{80};
+#else
   Preferences storage_;
-  SemaphoreHandle_t writer_ = nullptr;
-  portMUX_TYPE mux_ = portMUX_INITIALIZER_UNLOCKED;
+  httpd_handle_t server_ = nullptr;
+#endif
+  WriteMutex writer_;
+  StateMutex mux_;
   Settings settings_{};
   MqttSettings mqttSettings_{};
   RotationSettings rotationSettings_{};
   WeatherSettings weatherSettings_{};
   DeviceStatus status_{};
   bool storageReady_ = false;
-  httpd_handle_t server_ = nullptr;
   char accessKey_[17]{};
   char csrf_[33]{};
   char authorization_[80]{};

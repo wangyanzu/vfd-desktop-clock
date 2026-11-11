@@ -40,12 +40,12 @@ inline bool encodeMessage(std::string_view utf8, DisplayText& destination) {
       size_t left = 0, right = sizeof(encoding::gb2312) / sizeof(encoding::gb2312[0]);
       while (left < right) {
         const auto middle = left + (right - left) / 2;
-        if (encoding::gb2312[middle].unicode < point) left = middle + 1;
+        if (encoding::gb2312At(middle).unicode < point) left = middle + 1;
         else right = middle;
       }
-      if (left < sizeof(encoding::gb2312) / sizeof(encoding::gb2312[0]) && encoding::gb2312[left].unicode == point) {
-        const auto bytes = encoding::gb2312[left].gb;
-        Cell::gb2312(bytes >> 8, bytes & 0xff, cell);
+      if (left < sizeof(encoding::gb2312) / sizeof(encoding::gb2312[0])) {
+        const auto match = encoding::gb2312At(left);
+        if (match.unicode == point) Cell::gb2312(match.gb >> 8, match.gb & 0xff, cell);
       } else { cell = Cell::ascii('?'); ++next.substitutions; }
     }
     next.cells[next.length++] = cell;

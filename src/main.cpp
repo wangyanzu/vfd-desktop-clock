@@ -1,14 +1,21 @@
 #include "w4home_client.h"
 #include <Arduino.h>
 #include <HardwareSerial.h>
-#include <WiFi.h>
 #include <Wire.h>
 #include <time.h>
+#include "clock/runtime.h"
+#if defined(ARDUINO_ARCH_ESP8266)
+extern "C" {
+#include <gpio.h>
+#include <user_interface.h>
+}
+#else
 #include <esp_timer.h>
 #include <driver/uart.h>
 #include <driver/gpio.h>
 #include <esp_sleep.h>
 #include <esp_system.h>
+#endif
 #include "clock/aht10.h"
 #include "clock/config.h"
 #include "clock/core.h"
@@ -31,8 +38,16 @@ class AhtBus {
  public:
   static constexpr uint32_t frequency = 50000;
   bool begin() {
+#if defined(ARDUINO_ARCH_ESP8266)
+    Wire.begin(config::sda, config::scl);
+    Wire.setClock(frequency);
+    Wire.setClockStretchLimit(2000);
+    ready_ = true;
+#else
     ready_ = Wire.begin(config::sda, config::scl, frequency);
-    Wire.setTimeOut(20); return ready_;
+    Wire.setTimeOut(20);
+#endif
+    return ready_;
   }
   bool write(const uint8_t* bytes, size_t size) {
     if (!ready_) { lastWriteError_ = 4; return false; }
@@ -54,7 +69,9 @@ class AhtBus {
     return true;
   }
   bool recover() {
+#if !defined(ARDUINO_ARCH_ESP8266)
     if (ready_) Wire.end();
+#endif
     ready_ = false;
     struct Lines {
       void releaseSda() { pinMode(config::sda, INPUT_PULLUP); }
@@ -81,14 +98,40 @@ class AhtBus {
   uint32_t shortReads_ = 0;
   bool ready_ = false;
 };
+#if defined(ARDUINO_ARCH_ESP8266)
+auto& displaySerial = Serial1;
+#else
 HardwareSerial displaySerial(1);
+#endif
 struct DisplayPort {
   size_t write(const uint8_t* bytes, size_t length) {
     const int available = displaySerial.availableForWrite();
     if (available < 0 || static_cast<size_t>(available) < length) return 0;
-    return displaySerial.write(bytes, length);
+    const auto written = displaySerial.write(bytes, length);
+#if defined(ARDUINO_ARCH_ESP8266)
+    // The FIFO count omits the byte currently being shifted. Include that
+    // byte and round up 8N1 at 9600 baud so sleep cannot cut off a command.
+    if (written) {
+      const auto queued = (U1S >> USTXC) & 0xff;
+      drainAt_ = micros() + (queued + 1) * 1042;
+      pending_ = true;
+    }
+#endif
+    return written;
   }
-  bool drained() const { return uart_wait_tx_done(UART_NUM_1, 0) == ESP_OK; }
+  bool drained() const {
+#if defined(ARDUINO_ARCH_ESP8266)
+    if (pending_ && int32_t(micros() - drainAt_) >= 0) pending_ = false;
+    return !pending_;
+#else
+    return uart_wait_tx_done(UART_NUM_1, 0) == ESP_OK;
+#endif
+  }
+#if defined(ARDUINO_ARCH_ESP8266)
+ private:
+  uint32_t drainAt_ = 0;
+  mutable bool pending_ = false;
+#endif
 };
 DisplayPort displayPort;
 DisplayService<DisplayPort> display(displayPort, static_cast<Motion>(config::animationLevel), config::displayWakeSettleMs, true);
@@ -115,6 +158,16 @@ bool portalReady = false, sensorEnabled = false, displayReady = false;
 uint32_t bootAt = 0, lastFrameAt = 0;
 bool firstFrame = true, hadSample = false;
 const char* resetReason() {
+#if defined(ARDUINO_ARCH_ESP8266)
+  switch (ESP.getResetInfoPtr()->reason) {
+    case REASON_DEFAULT_RST: return "power_on";
+    case REASON_SOFT_RESTART: return "software";
+    case REASON_EXCEPTION_RST: return "panic";
+    case REASON_WDT_RST: case REASON_SOFT_WDT_RST: return "watchdog";
+    case REASON_EXT_SYS_RST: return "external";
+    default: return "other";
+  }
+#else
   switch (esp_reset_reason()) {
     case ESP_RST_POWERON: return "power_on";
     case ESP_RST_SW: return "software";
@@ -125,6 +178,7 @@ const char* resetReason() {
     case ESP_RST_USB: return "usb";
     default: return "other";
   }
+#endif
 }
 
 bool messageEligible() {
@@ -151,6 +205,34 @@ void shortPress(uint32_t now, const char* source = "button") {
     mqtt.pause(false); weather.pause(false); w4home_pause(false); display.wake(now); firstFrame = true;
   }
 }
+void finishSleep(bool radioStopped) {
+  const uint32_t resumedAt = millis();
+  autoPower.restart(resumedAt); display.brightness(4);
+  manual.wake(resumedAt); // consume the wake press, including long holds/bounce
+  if (radioStopped && portalReady) network.resume(portal.settings(), resumedAt);
+  if (sensorEnabled) aht.resume(resumedAt);
+  mqtt.pause(false); weather.pause(false); w4home_pause(false);
+  display.wake(resumedAt);
+  firstFrame = true;
+}
+#if defined(ARDUINO_ARCH_ESP8266)
+bool forcedSleep = false;
+volatile bool gpioWake = false;
+void onGpioWake() { gpioWake = true; }
+bool pollForcedSleep() {
+  if (!forcedSleep) return false;
+  if (!gpioWake && digitalRead(config::button) != LOW) {
+    delay(10);  // Yield to the SDK so it can enter forced light sleep.
+    return true;
+  }
+  gpio_pin_wakeup_disable();
+  wifi_fpm_close();
+  forcedSleep = false;
+  finishSleep(true);
+  Serial.println("POWER: button wake, restoring display and network");
+  return false;
+}
+#endif
 void enterManualSleep() {
   // Never sleep until the display OFF command has left both UART buffers.
   if (!config::hasButton || !manual.sleeping()) return;
@@ -165,6 +247,30 @@ void enterManualSleep() {
     return;
   }
   if (preparation != SleepPreparation::Result::ready) return;
+#if defined(ARDUINO_ARCH_ESP8266)
+  if (!WiFi.mode(WIFI_OFF)) {
+    finishSleep(true);
+    Serial.println("POWER: failed to stop Wi-Fi; restored awake mode");
+    return;
+  }
+  Serial.println("POWER: display off, network off, entering light sleep; GPIO button wakes");
+  Serial.flush();
+  gpioWake = false;
+  wifi_fpm_set_sleep_type(LIGHT_SLEEP_T);
+  gpio_pin_wakeup_enable(GPIO_ID_PIN(config::button), GPIO_PIN_INTR_LOLEVEL);
+  wifi_fpm_set_wakeup_cb(onGpioWake);
+  wifi_fpm_open();
+  const auto result = wifi_fpm_do_sleep(0xFFFFFFF);  // No timer; wake on button.
+  if (result == 0) {
+    forcedSleep = true;
+    delay(10);
+    return;
+  }
+  gpio_pin_wakeup_disable();
+  wifi_fpm_close();
+  finishSleep(true);
+  Serial.printf("POWER: sleep failed (%d); restored awake mode\n", int(result));
+#else
   const auto pin = static_cast<gpio_num_t>(config::button);
   esp_err_t result = gpio_wakeup_enable(pin, GPIO_INTR_LOW_LEVEL);
   if (result == ESP_OK) result = esp_sleep_enable_gpio_wakeup();
@@ -180,16 +286,10 @@ void enterManualSleep() {
   }
   gpio_wakeup_disable(pin);
   esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO);
-  const uint32_t resumedAt = millis();
-  autoPower.restart(resumedAt); display.brightness(4);
-  manual.wake(resumedAt); // consume the wake press, including long holds/bounce
-  if (radioStopAttempted) network.resume(portal.settings(), resumedAt);
-  if (sensorEnabled) aht.resume(resumedAt);
-  mqtt.pause(false); weather.pause(false); w4home_pause(false);
-  display.wake(resumedAt);
-  firstFrame = true;
+  finishSleep(radioStopAttempted);
   if (result == ESP_OK) Serial.println("POWER: button wake, restoring display and network");
   else Serial.printf("POWER: sleep failed (%s); restored awake mode\n", esp_err_to_name(result));
+#endif
 }
 void applyClock(const Settings& settings) {
   const auto timezone = timezoneForOffset(settings.utcOffsetMinutes);
@@ -230,8 +330,12 @@ void setup() {
   WiFi.mode(WIFI_STA);
   portalReady = portal.begin(defaultSettings(), defaultMqttSettings());
   applied = portal.settings();
+#if defined(ARDUINO_ARCH_ESP8266)
+  displaySerial.begin(9600, SERIAL_8N1, SERIAL_TX_ONLY);
+#else
   displaySerial.setTxBufferSize(256);
   displaySerial.begin(9600, SERIAL_8N1, -1, config::vfdTx);
+#endif
   if (config::hasButton) pinMode(config::button, INPUT_PULLUP);
   if (config::hasAht) {
     sensorEnabled = true;
@@ -242,7 +346,11 @@ void setup() {
   if (portalReady) {
     network.begin(applied, portal.accessKey(), millis());
     portalReady = portal.start();
+#if defined(ARDUINO_ARCH_ESP8266)
+    Serial.println("Local setup: connect to the displayed hotspot and sign in as admin.");
+#else
     Serial.println("Local setup: connect to the displayed hotspot; automatic platform enrollment.");
+#endif
   }
   if (!portalReady) Serial.println("Configuration service unavailable.");
   applyClock(applied);
@@ -253,11 +361,14 @@ void setup() {
   if (!weather.begin(appliedWeather)) Serial.println("Weather task initialization failed.");
 }
 
-void loop() {
+// Keep the clock frame and network calls in separate stack frames.
+static void __attribute__((noinline)) tickClock() {
   const uint32_t now = millis();
   const Settings current = portal.settings();
   if (portalReady) network.tick(current, now);
+#if !defined(ARDUINO_ARCH_ESP8266)
   portal.localTick(network.connected());
+#endif
   if (current.utcOffsetMinutes != applied.utcOffsetMinutes || std::strcmp(current.ntp, applied.ntp) != 0) applyClock(current);
   if (sensorEnabled) {
     aht.tick(now);
@@ -354,7 +465,11 @@ void loop() {
     status.weatherHttpStatus = outdoor.httpStatus;
     std::memcpy(status.weatherErrorCode,outdoor.errorCode,sizeof(status.weatherErrorCode));
     // Use the 64-bit system timer so uptime does not reset at millis() rollover.
+#if defined(ARDUINO_ARCH_ESP8266)
+    status.uptimeSeconds = static_cast<uint32_t>(micros64() / 1000000);
+#else
     status.uptimeSeconds = static_cast<uint32_t>(esp_timer_get_time() / 1000000);
+#endif
     if (status.connected) std::snprintf(status.ip, sizeof(status.ip), "%s", WiFi.localIP().toString().c_str());
     std::snprintf(status.mqttState, sizeof(status.mqttState), "%s", mqttStateName(mqtt.state()));
     status.messageCount = static_cast<uint8_t>(messages.count());
@@ -379,6 +494,11 @@ void loop() {
       Serial.printf("POWER: manual button GPIO=%d enabled=%d sleeping=%d\n",
                     config::button, config::hasButton, manual.sleeping());
       Serial.printf("SYSTEM: reset_reason=%s\n", resetReason());
+#if defined(ARDUINO_ARCH_ESP8266)
+      Serial.printf("SYSTEM: heap_free=%lu heap_largest=%lu\n",
+                    static_cast<unsigned long>(ESP.getFreeHeap()),
+                    static_cast<unsigned long>(ESP.getMaxFreeBlockSize()));
+#endif
       Serial.printf("POWER: button_level=%d display_state=%u mqtt_paused=%d\n",
                     config::hasButton ? digitalRead(config::button) : -1,
                     unsigned(display.state()), mqtt.paused());
@@ -419,10 +539,23 @@ void loop() {
   else if (network.setupActive()) display.wake(now);
   display.tick(now);
   enterManualSleep();
+}
+
+void loop() {
+#if defined(ARDUINO_ARCH_ESP8266)
+  if (pollForcedSleep()) return;
+  if (portalReady) portal.poll();
+  mqtt.poll();
+  weather.poll(mqtt);
+#endif
+  tickClock();
   delay(1);
 }
 
+
+#if !defined(ARDUINO_ARCH_ESP8266)
 extern "C" void w4home_status(char *output, size_t capacity) {
   std::snprintf(output, capacity, "{\"uptime\":%lu,\"rssi\":%d,\"sensorValid\":%s}",
     static_cast<unsigned long>(millis()/1000), WiFi.RSSI(), portal.sensorValid()?"true":"false");
 }
+#endif

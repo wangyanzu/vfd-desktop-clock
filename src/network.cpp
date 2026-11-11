@@ -8,9 +8,15 @@ void NetworkManager::begin(const Settings& settings, const char* accessKey, uint
   WiFi.macAddress(mac);
   const unsigned suffix = (static_cast<unsigned>(mac[4]) << 8) | mac[5];
   std::snprintf(apName_, sizeof(apName_), "W4VFD-Clock-%04X", suffix);
+#if defined(ARDUINO_ARCH_ESP8266)
+  WiFi.hostname(apName_);
+#else
   WiFi.setHostname(apName_);
+#endif
   // STA was started early to seed the hardware RNG; update its live netif too.
+#if !defined(ARDUINO_ARCH_ESP8266)
   if (!WiFi.STA.setHostname(apName_)) Serial.println("Could not set WiFi hostname.");
+#endif
   WiFi.persistent(false);
   WiFi.setAutoReconnect(false);
   connect(settings, now);
@@ -25,7 +31,11 @@ void NetworkManager::resume(const Settings& settings, uint32_t now) {
   policy_ = NetworkPolicy{};
   waiting_ = wasConnected_ = false;
   WiFi.mode(WIFI_STA);
+#if defined(ARDUINO_ARCH_ESP8266)
+  WiFi.hostname(apName_);
+#else
   WiFi.setHostname(apName_);
+#endif
   connect(settings, now);
 }
 void NetworkManager::tick(const Settings& desired, uint32_t now) {

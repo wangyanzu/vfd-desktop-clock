@@ -1,20 +1,61 @@
-#include "w4home_client.h"
 #include "clock/portal.h"
-#include "w4home/idf_portal.h"
 #include "clock/messages.h"
 #include "clock/web_assets.h"
 #include <Arduino.h>
+#if defined(ARDUINO_ARCH_ESP8266)
+#include <base64.h>
+extern "C" {
+#include <osapi.h>
+}
+#else
+#include "w4home_client.h"
+#include "w4home/idf_portal.h"
 #include <esp_random.h>
 #include <mbedtls/base64.h>
+#endif
 #include <algorithm>
 
 namespace clockapp {
+#if !defined(ARDUINO_ARCH_ESP8266)
 static ConfigPortal *localPortal;
+#endif
 namespace {
+void fillRandom(void* output, size_t size) {
+#if defined(ARDUINO_ARCH_ESP8266)
+  os_get_random(static_cast<unsigned char*>(output), size);
+#else
+  esp_fill_random(output, size);
+#endif
+}
+constexpr PortalResult requestHandled = 0;
+void responseStatus(PortalRequest* request, const char* status) {
+#if defined(ARDUINO_ARCH_ESP8266)
+  request->status = std::atoi(status);
+#else
+  httpd_resp_set_status(request, status);
+#endif
+}
+void responseHeader(PortalRequest* request, const char* name, const char* value) {
+#if defined(ARDUINO_ARCH_ESP8266)
+  request->server.sendHeader(name, value);
+#else
+  httpd_resp_set_hdr(request, name, value);
+#endif
+}
+bool requestHeader(PortalRequest* request, const char* name, char* output, size_t capacity) {
+#if defined(ARDUINO_ARCH_ESP8266)
+  const auto value = request->server.header(name);
+  if (value.isEmpty() || value.length() >= capacity) return false;
+  std::memcpy(output, value.c_str(), value.length() + 1);
+  return true;
+#else
+  return httpd_req_get_hdr_value_str(request, name, output, capacity) == ESP_OK;
+#endif
+}
 void randomHex(char* output, size_t length) {
   const char hex[] = "0123456789ABCDEF";
   uint8_t bytes[16];
-  esp_fill_random(bytes, sizeof(bytes));
+  fillRandom(bytes, sizeof(bytes));
   for (size_t i = 0; i < length; ++i) output[i] = hex[(bytes[i / 2] >> ((i % 2) * 4)) & 15];
   output[length] = 0;
 }
@@ -33,7 +74,7 @@ void randomAccessKey(char* output) {
   for (size_t i = 0; i < 8; ++i) {
     uint8_t value;
     // Reject the uneven tail so each digit has the same probability.
-    do { esp_fill_random(&value, sizeof(value)); } while (value >= 250);
+    do { fillRandom(&value, sizeof(value)); } while (value >= 250);
     output[i] = '0' + value % 10;
   }
   output[8] = 0;
@@ -42,9 +83,12 @@ void randomAccessKey(char* output) {
 
 bool ConfigPortal::begin(const Settings& defaults, const MqttSettings& mqttDefaults) {
   settings_ = defaults; mqttSettings_ = mqttDefaults;
-  writer_ = xSemaphoreCreateMutex();
-  if (!writer_) return false;
+  if (!writer_.begin()) return false;
+#if defined(ARDUINO_ARCH_ESP8266)
+  storageReady_ = storage_.begin();
+#else
   storageReady_ = storage_.begin("clock", false);
+#endif
   if (storageReady_) {
     SettingsRecord record{};
     if (storage_.getBytesLength("settings") == record.size() &&
@@ -54,11 +98,14 @@ bool ConfigPortal::begin(const Settings& defaults, const MqttSettings& mqttDefau
       LegacySettingsRecord previous{};
       if (storage_.getBytes("settings",previous.data(),previous.size()) != previous.size() ||
           !decodeSettings(previous,settings_)) Serial.println("Invalid legacy settings; using defaults.");
-    } else {
+    }
+#if !defined(ARDUINO_ARCH_ESP8266)
+    else {
       // Migrate brightness from the first firmware. Network remains in defaults.
       const auto previous = storage_.getUChar("brightness", defaults.brightness);
       if (previous >= 1 && previous <= 4) settings_.brightness = previous;
     }
+#endif
     MqttSettingsRecord mqttRecord{};
     if (storage_.getBytesLength("mqtt") == mqttRecord.size() &&
         storage_.getBytes("mqtt", mqttRecord.data(), mqttRecord.size()) == mqttRecord.size()) {
@@ -83,72 +130,95 @@ bool ConfigPortal::begin(const Settings& defaults, const MqttSettings& mqttDefau
     randomAccessKey(accessKey_);
     if (!storageReady_ || storage_.putString("access", accessKey_) != 8) return false;
   }
+#if !defined(ARDUINO_ARCH_ESP8266)
   SettingsRecord trial{};
   if(storage_.getBytesLength("localTrial")==trial.size()&&storage_.getBytes("localTrial",trial.data(),trial.size())==trial.size()){
     Settings staged{};if(decodeSettings(trial,staged)){std::snprintf(settings_.ssid,sizeof(settings_.ssid),"%s",staged.ssid);std::snprintf(settings_.password,sizeof(settings_.password),"%s",staged.password);}
   }
+#endif
   randomHex(csrf_, 32);
   const std::string credentials = std::string("admin:") + accessKey_;
+#if defined(ARDUINO_ARCH_ESP8266)
+  const auto encoded = base64::encode(reinterpret_cast<const uint8_t*>(credentials.data()), credentials.size());
+  if (encoded.isEmpty()) return false;
+  std::snprintf(authorization_, sizeof(authorization_), "Basic %s", encoded.c_str());
+#else
   unsigned char encoded[64]{};
   size_t length = 0;
   if (mbedtls_base64_encode(encoded, sizeof(encoded), &length,
                           reinterpret_cast<const unsigned char*>(credentials.data()), credentials.size()) != 0) return false;
   std::snprintf(authorization_, sizeof(authorization_), "Basic %s", encoded);
+#endif
   return true;
 }
 
 Settings ConfigPortal::settings() {
-  portENTER_CRITICAL(&mux_);
+  mux_.lock();
   const Settings copy = settings_;
-  portEXIT_CRITICAL(&mux_);
+  mux_.unlock();
   return copy;
 }
 MqttSettings ConfigPortal::mqttSettings() {
-  portENTER_CRITICAL(&mux_);
+  mux_.lock();
   const MqttSettings copy = mqttSettings_;
-  portEXIT_CRITICAL(&mux_);
+  mux_.unlock();
   return copy;
 }
 RotationSettings ConfigPortal::rotationSettings() {
-  portENTER_CRITICAL(&mux_);
+  mux_.lock();
   const RotationSettings copy = rotationSettings_;
-  portEXIT_CRITICAL(&mux_);
+  mux_.unlock();
   return copy;
 }
 void ConfigPortal::publish(const DeviceStatus& status) {
-  portENTER_CRITICAL(&mux_);
+  mux_.lock();
   status_ = status;
-  portEXIT_CRITICAL(&mux_);
+  mux_.unlock();
 }
 WeatherSettings ConfigPortal::weatherSettings() {
-  portENTER_CRITICAL(&mux_); const auto copy = weatherSettings_; portEXIT_CRITICAL(&mux_); return copy;
+  mux_.lock(); const auto copy = weatherSettings_; mux_.unlock(); return copy;
 }
 ConfigPortal::SaveResult ConfigPortal::saveLocked(const Settings& next) {
   if (!storageReady_ || !validSettings(next)) return SaveResult::unavailable;
   Settings stable=next;
+#if !defined(ARDUINO_ARCH_ESP8266)
   if(storage_.isKey("localTrial")){
     SettingsRecord saved{};Settings original{};
     if(storage_.getBytes("localBackup",saved.data(),saved.size())!=saved.size()||!decodeSettings(saved,original))return SaveResult::unavailable;
     std::snprintf(stable.ssid,sizeof(stable.ssid),"%s",original.ssid);std::snprintf(stable.password,sizeof(stable.password),"%s",original.password);
   }
+#endif
   const auto record = encodeSettings(stable);
   // NVS commits one complete versioned blob. Publish only after success.
   if (storage_.putBytes("settings", record.data(), record.size()) != record.size()) return SaveResult::unavailable;
-  portENTER_CRITICAL(&mux_);
+  mux_.lock();
   settings_ = next;
-  portEXIT_CRITICAL(&mux_);
+  mux_.unlock();
   return SaveResult::ok;
 }
 bool ConfigPortal::cycleBrightness() {
-  if (!writer_ || xSemaphoreTake(writer_, 0) != pdTRUE) return false;
+  if (!writer_.take()) return false;
   Settings next = settings();
   next.brightness = next.brightness % 4 + 1;
   const auto result = saveLocked(next);
-  xSemaphoreGive(writer_);
+  writer_.give();
   return result == SaveResult::ok;
 }
 
 bool ConfigPortal::start() {
+  const char* paths[] = {"/", "/style.css", "/app.js", "/api/state", "/api/settings", "/api/messages/ack", "/api/mqtt", "/api/rotation", "/api/weather"};
+#if defined(ARDUINO_ARCH_ESP8266)
+  server_.collectHeaders("Content-Type", "X-CSRF-Token"); // Authorization is always collected.
+  for (size_t i = 0; i < sizeof(paths)/sizeof(paths[0]); ++i) {
+    server_.on(paths[i], i >= 4 ? HTTP_POST : HTTP_GET, [this]() {
+      server_.keepAlive(false);
+      PortalRequest request{server_, server_.uri().c_str()};
+      handle(&request);
+    });
+  }
+  server_.begin();
+  return true;
+#else
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
   config.stack_size = 8192;
   config.task_priority = 1;
@@ -158,7 +228,6 @@ bool ConfigPortal::start() {
   config.send_wait_timeout = 2;
   config.max_uri_handlers = 18;
   if (httpd_start(&server_, &config) != ESP_OK) return false;
-  const char* paths[] = {"/", "/style.css", "/app.js", "/api/state", "/api/settings", "/api/messages/ack", "/api/mqtt", "/api/rotation", "/api/weather"};
   for (size_t i = 0; i < 9; ++i) {
     httpd_uri_t route{};
     route.uri = paths[i];
@@ -171,43 +240,53 @@ bool ConfigPortal::start() {
   }
   localPortal=this;
   const w4local_ops_t ops={
-   [](){portENTER_CRITICAL(&localPortal->mux_);bool active=localPortal->status_.setupActive;portEXIT_CRITICAL(&localPortal->mux_);return active;},
+   [](){localPortal->mux_.lock();bool active=localPortal->status_.setupActive;localPortal->mux_.unlock();return active;},
    [](const char *ssid,const char *password,const char *origin){return localPortal->localStage(ssid,password,origin);},
    [](){return localPortal->localCancel();},[](){return localPortal->localClear();},
-   [](cJSON *j){char origin[192];bool ready=false,recovery=false;w4home_local_state(origin,sizeof(origin),&ready,&recovery);portENTER_CRITICAL(&localPortal->mux_);bool connected=localPortal->status_.connected;portEXIT_CRITICAL(&localPortal->mux_);cJSON_AddBoolToObject(j,"configured",ready);cJSON_AddBoolToObject(j,"wifiConnected",connected);cJSON_AddBoolToObject(j,"authRecoveryRequired",recovery);cJSON_AddBoolToObject(j,"pendingSetup",localPortal->storage_.isKey("localTrial"));cJSON_AddBoolToObject(j,"serverConfigured",true);cJSON_AddStringToObject(j,"server",origin);},
+   [](cJSON *j){char origin[192];bool ready=false,recovery=false;w4home_local_state(origin,sizeof(origin),&ready,&recovery);localPortal->mux_.lock();bool connected=localPortal->status_.connected;localPortal->mux_.unlock();cJSON_AddBoolToObject(j,"configured",ready);cJSON_AddBoolToObject(j,"wifiConnected",connected);cJSON_AddBoolToObject(j,"authRecoveryRequired",recovery);cJSON_AddBoolToObject(j,"pendingSetup",localPortal->storage_.isKey("localTrial"));cJSON_AddBoolToObject(j,"serverConfigured",true);cJSON_AddStringToObject(j,"server",origin);},
    []()->const char*{static char origin[192];bool ready=false,recovery=false;w4home_local_state(origin,sizeof(origin),&ready,&recovery);return origin;}
   };
   return w4local_register(server_,&ops)==ESP_OK;
+#endif
 }
-esp_err_t ConfigPortal::dispatch(httpd_req_t* request) {
+#if !defined(ARDUINO_ARCH_ESP8266)
+PortalResult ConfigPortal::dispatch(PortalRequest* request) {
   return static_cast<ConfigPortal*>(request->user_ctx)->handle(request);
 }
-esp_err_t ConfigPortal::send(httpd_req_t* request, const char* type, const char* body) {
+#endif
+PortalResult ConfigPortal::send(PortalRequest* request, const char* type, const char* body) {
+  responseHeader(request, "Cache-Control", "no-store");
+  responseHeader(request, "X-Content-Type-Options", "nosniff");
+  responseHeader(request, "Content-Security-Policy", "default-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+#if defined(ARDUINO_ARCH_ESP8266)
+  if (body == web::index || body == web::style || body == web::app) {
+    request->server.send_P(request->status, type, body, strlen_P(body));
+  } else {
+    request->server.send(request->status, type, body);
+  }
+  return requestHandled;
+#else
   httpd_resp_set_type(request, type);
-  httpd_resp_set_hdr(request, "Cache-Control", "no-store");
-  httpd_resp_set_hdr(request, "X-Content-Type-Options", "nosniff");
-  httpd_resp_set_hdr(request, "Content-Security-Policy", "default-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
   return httpd_resp_send(request, body, HTTPD_RESP_USE_STRLEN);
+#endif
 }
-esp_err_t ConfigPortal::error(httpd_req_t* request, const char* status, const char* message) {
-  httpd_resp_set_status(request, status);
+PortalResult ConfigPortal::error(PortalRequest* request, const char* status, const char* message) {
+  responseStatus(request, status);
   const std::string body = "{\"error\":" + jsonQuote(message) + "}";
   return send(request, "application/json; charset=utf-8", body.c_str());
 }
-bool ConfigPortal::authorized(httpd_req_t* request) {
+bool ConfigPortal::authorized(PortalRequest* request) {
   char header[sizeof(authorization_)]{};
   const size_t length = std::strlen(authorization_);
-  if (httpd_req_get_hdr_value_len(request, "Authorization") == length &&
-      httpd_req_get_hdr_value_str(request, "Authorization", header, sizeof(header)) == ESP_OK &&
+  if (requestHeader(request, "Authorization", header, sizeof(header)) && std::strlen(header) == length &&
       equalSecret(header, authorization_, length)) return true;
-  httpd_resp_set_hdr(request, "WWW-Authenticate", "Basic realm=\"VFD Clock\", charset=\"UTF-8\"");
+  responseHeader(request, "WWW-Authenticate", "Basic realm=\"VFD Clock\", charset=\"UTF-8\"");
   error(request, "401 Unauthorized", "请使用 admin 和设备访问密钥登录。");
   return false;
 }
-bool ConfigPortal::csrfValid(httpd_req_t* request) {
+bool ConfigPortal::csrfValid(PortalRequest* request) {
   char token[sizeof(csrf_)]{};
-  return httpd_req_get_hdr_value_len(request, "X-CSRF-Token") == 32 &&
-         httpd_req_get_hdr_value_str(request, "X-CSRF-Token", token, sizeof(token)) == ESP_OK &&
+  return requestHeader(request, "X-CSRF-Token", token, sizeof(token)) && std::strlen(token) == 32 &&
          equalSecret(token, csrf_, 32);
 }
 std::string ConfigPortal::stateJson() {
@@ -216,11 +295,10 @@ std::string ConfigPortal::stateJson() {
   MqttSettings mqtt;
   RotationSettings rotation;
   WeatherSettings weather;
-  portENTER_CRITICAL(&mux_);
+  mux_.lock();
   status = status_; current = settings_; mqtt = mqttSettings_; rotation = rotationSettings_; weather = weatherSettings_;
-  portEXIT_CRITICAL(&mux_);
-  char center[160];
-  w4home_diagnostics(center, sizeof(center));
+  mux_.unlock();
+
   char numbers[220];
   std::snprintf(numbers, sizeof(numbers),
     ",\"brightness\":%u,\"offset\":%d,\"connected\":%s,\"setupActive\":%s,\"timeValid\":%s,\"sensorEnabled\":%s,\"sampleFresh\":%s,\"uptime\":%lu",
@@ -231,7 +309,13 @@ std::string ConfigPortal::stateJson() {
     ",\"clock\":" + jsonQuote(status.clock) + ",\"ip\":" + jsonQuote(status.ip) + ",\"csrf\":" + jsonQuote(csrf_) +
     ",\"passwordSet\":" + (current.password[0] ? "true" : "false") +
     ",\"storageReady\":" + (storageReady_ ? "true" : "false") + numbers + ",\"sleepMinutes\":" + std::to_string(current.sleepMinutes);
+#if defined(ARDUINO_ARCH_ESP8266)
+  result += ",\"w4home\":null";
+#else
+  char center[160];
+  w4home_diagnostics(center, sizeof(center));
   result += ",\"w4home\":" + std::string(center);
+#endif
   if (status.sampleValid) {
     char values[80];
     std::snprintf(values, sizeof(values), ",\"temperature\":%.1f,\"humidity\":%.1f", status.temperature, status.humidity);
@@ -271,9 +355,11 @@ std::string ConfigPortal::stateJson() {
   result += "}";
   return result + "}";
 }
-esp_err_t ConfigPortal::handle(httpd_req_t* request) {
+PortalResult ConfigPortal::handle(PortalRequest* request) {
+#if !defined(ARDUINO_ARCH_ESP8266)
   if(std::strcmp(request->uri,"/")==0&&w4local_on_ap(request))return w4local_page(request);
-  if (!authorized(request)) return ESP_OK;
+#endif
+  if (!authorized(request)) return requestHandled;
   // No query parameters are accepted: they must never become settings input.
   if (std::strchr(request->uri, '?')) return error(request, "400 Bad Request", "该接口不接受查询参数。");
   if (std::strcmp(request->uri, "/") == 0) return send(request, "text/html; charset=utf-8", web::index);
@@ -289,15 +375,27 @@ esp_err_t ConfigPortal::handle(httpd_req_t* request) {
   if (std::strcmp(request->uri, "/api/weather") == 0) return updateWeather(request);
   return update(request);
 }
-bool ConfigPortal::receiveForm(httpd_req_t* request, std::string& body, size_t maximum) {
+bool ConfigPortal::receiveForm(PortalRequest* request, std::string& body, size_t maximum) {
   if (!csrfValid(request)) { error(request, "403 Forbidden", "页面会话已失效，请刷新后重试。"); return false; }
-  if (request->content_len == 0 || request->content_len > maximum) { error(request, "413 Content Too Large", "请求大小超出限制。"); return false; }
+
   char type[64]{};
-  if (httpd_req_get_hdr_value_str(request, "Content-Type", type, sizeof(type)) != ESP_OK ||
+  if (!requestHeader(request, "Content-Type", type, sizeof(type)) ||
       std::strcmp(type, "application/x-www-form-urlencoded") != 0) {
     error(request, "415 Unsupported Media Type", "请使用表单提交。"); return false;
   }
-  body.assign(request->content_len, '\0');
+#if defined(ARDUINO_ARCH_ESP8266)
+  // The core appends the raw body after the decoded arguments. Use the index
+  // so a submitted field named "plain" cannot shadow it.
+  const auto& raw = request->server.arg(request->server.args());
+  const size_t size = raw.length();
+#else
+  const size_t size = request->content_len;
+#endif
+  if (!size || size > maximum) { error(request, "413 Content Too Large", "请求大小超出限制。"); return false; }
+#if defined(ARDUINO_ARCH_ESP8266)
+  body.assign(raw.c_str(), size);
+#else
+  body.assign(size, '\0');
   size_t received = 0;
   const uint32_t startedAt = millis();
   while (received < body.size()) {
@@ -308,71 +406,72 @@ bool ConfigPortal::receiveForm(httpd_req_t* request, std::string& body, size_t m
     if (count <= 0) { error(request, "408 Request Timeout", "接收失败，请重试。"); return false; }
     received += static_cast<size_t>(count);
   }
+#endif
   return true;
 }
 bool ConfigPortal::takeMessageAck(uint32_t& id) {
-  portENTER_CRITICAL(&mux_);
+  mux_.lock();
   id = pendingMessageAck_; pendingMessageAck_ = 0;
-  portEXIT_CRITICAL(&mux_);
+  mux_.unlock();
   return id != 0;
 }
-esp_err_t ConfigPortal::acknowledgeMessage(httpd_req_t* request) {
+PortalResult ConfigPortal::acknowledgeMessage(PortalRequest* request) {
   std::string body;
-  if (!receiveForm(request, body, 13)) return ESP_OK;
+  if (!receiveForm(request, body, 13)) return requestHandled;
   uint32_t id = 0;
   if (!parseMessageAck(body, id)) return error(request, "400 Bad Request", "消息编号无效。");
-  portENTER_CRITICAL(&mux_);
+  mux_.lock();
   const bool accepted = status_.messageVisible && status_.messageId == id &&
                         (!pendingMessageAck_ || pendingMessageAck_ == id);
   if (accepted) pendingMessageAck_ = id;
-  portEXIT_CRITICAL(&mux_);
+  mux_.unlock();
   if (!accepted) return error(request, "409 Conflict", "当前消息已变化或暂不可确认，请刷新状态。");
-  httpd_resp_set_status(request, "202 Accepted");
+  responseStatus(request, "202 Accepted");
   return send(request, "application/json; charset=utf-8", "{\"accepted\":true}");
 }
-esp_err_t ConfigPortal::updateRotation(httpd_req_t* request) {
+PortalResult ConfigPortal::updateRotation(PortalRequest* request) {
   std::string body;
-  if (!receiveForm(request, body, 64)) return ESP_OK;
+  if (!receiveForm(request, body, 64)) return requestHandled;
   RotationSettings next;
   if (!parseRotationForm(body, next)) return error(request, "400 Bad Request", "至少选择一项内容，停留时间须为 5–120 秒；字段不能缺失或重复。");
-  if (xSemaphoreTake(writer_, pdMS_TO_TICKS(1000)) != pdTRUE) return error(request, "503 Service Unavailable", "配置正忙，请重试。");
+  if (!writer_.take(1000)) return error(request, "503 Service Unavailable", "配置正忙，请重试。");
   bool saved = false;
   if (storageReady_) {
     const auto record = encodeRotation(next);
     saved = storage_.putBytes("rotation", record.data(), record.size()) == record.size();
     if (saved) {
-      portENTER_CRITICAL(&mux_); rotationSettings_ = next; portEXIT_CRITICAL(&mux_);
+      mux_.lock(); rotationSettings_ = next; mux_.unlock();
     }
   }
-  xSemaphoreGive(writer_);
+  writer_.give();
   if (!saved) return error(request, "503 Service Unavailable", "保存失败，当前轮播配置未改变。");
   return send(request, "application/json; charset=utf-8", "{\"ok\":true}");
 }
-esp_err_t ConfigPortal::updateWeather(httpd_req_t* request) {
+PortalResult ConfigPortal::updateWeather(PortalRequest* request) {
   std::string body;
-  if (!receiveForm(request, body, 1024)) return ESP_OK;
+  if (!receiveForm(request, body, 1024)) return requestHandled;
   WeatherInput input;
   if (!parseWeatherForm(body, input)) return error(request, "400 Bad Request", "天气字段缺失、重复或编码错误。");
-  if (xSemaphoreTake(writer_, pdMS_TO_TICKS(1000)) != pdTRUE) return error(request, "503 Service Unavailable", "配置正忙，请重试。");
+  if (!writer_.take(1000)) return error(request, "503 Service Unavailable", "配置正忙，请重试。");
   WeatherSettings next;
   const char* validation = applyWeather(weatherSettings(), input, next);
   bool saved = false;
   if (!validation && storageReady_) {
     const auto record = encodeWeather(next);
     saved = storage_.putBytes("weather", record.data(), record.size()) == record.size();
-    if (saved) { portENTER_CRITICAL(&mux_); weatherSettings_ = next; portEXIT_CRITICAL(&mux_); }
+    if (saved) { mux_.lock(); weatherSettings_ = next; mux_.unlock(); }
   }
-  xSemaphoreGive(writer_);
+  writer_.give();
   if (validation) return error(request, "400 Bad Request", "请核对城市、公私钥操作和 5–60 分钟刷新间隔；启用时城市及两项密钥不能为空。");
   if (!saved) return error(request, "503 Service Unavailable", "保存失败，天气配置未改变。");
   return send(request, "application/json; charset=utf-8", "{\"ok\":true}");
 }
-esp_err_t ConfigPortal::updateMqtt(httpd_req_t* request) {
+PortalResult ConfigPortal::updateMqtt(PortalRequest* request) {
   std::string body;
-  if (!receiveForm(request, body, 2048)) return ESP_OK;
+  if (!receiveForm(request, body, 2048)) return requestHandled;
   MqttSettingsInput input;
   if (!parseMqttForm(body, input)) return error(request, "400 Bad Request", "MQTT 字段缺失、重复或编码错误。");
-  if (xSemaphoreTake(writer_, pdMS_TO_TICKS(1000)) != pdTRUE) return error(request, "503 Service Unavailable", "配置正忙，请重试。");
+  if (!writer_.take(1000)) return error(request, "503 Service Unavailable", "配置正忙，请重试。");
   MqttSettings next;
   const char* validation = applyMqttSettings(mqttSettings(), input, next);
   bool saved = false;
@@ -380,59 +479,66 @@ esp_err_t ConfigPortal::updateMqtt(httpd_req_t* request) {
     const auto record = encodeMqttSettings(next);
     saved = storage_.putBytes("mqtt", record.data(), record.size()) == record.size();
     if (saved) {
-      portENTER_CRITICAL(&mux_); mqttSettings_ = next; portEXIT_CRITICAL(&mux_);
+      mux_.lock(); mqttSettings_ = next; mux_.unlock();
     }
   }
-  xSemaphoreGive(writer_);
+  writer_.give();
   if (validation) return error(request, "400 Bad Request", validation);
   if (!saved) return error(request, "503 Service Unavailable", "保存失败，当前 MQTT 配置未改变。");
   return send(request, "application/json; charset=utf-8", "{\"ok\":true}");
 }
-esp_err_t ConfigPortal::update(httpd_req_t* request) {
+PortalResult ConfigPortal::update(PortalRequest* request) {
   std::string body;
-  if (!receiveForm(request, body, 1024)) return ESP_OK;
+  if (!receiveForm(request, body, 1024)) return requestHandled;
   SettingsInput input;
   if (!parseSettingsForm(body, input)) return error(request, "400 Bad Request", "配置字段缺失、重复或编码错误。");
-  if (xSemaphoreTake(writer_, pdMS_TO_TICKS(1000)) != pdTRUE) return error(request, "503 Service Unavailable", "配置正忙，请重试。");
+  if (!writer_.take(1000)) return error(request, "503 Service Unavailable", "配置正忙，请重试。");
   Settings next;
   const char* validation = applySettings(settings(), input, next);
-  if(!validation&&!sameNetwork(next,settings())){xSemaphoreGive(writer_);return error(request,"403 Forbidden","网络只在设备热点配网页中维护。");}
+#if defined(ARDUINO_ARCH_ESP8266)
+  const bool canChangeWifi = status_.setupActive && request->server.client().localIP() == WiFi.softAPIP();
+#else
+  constexpr bool canChangeWifi = false;
+#endif
+  if(!validation&&!canChangeWifi&&!sameNetwork(next,settings())){writer_.give();return error(request,"403 Forbidden","网络只在设备热点配网页中维护。");}
   const auto result = validation ? SaveResult::unavailable : saveLocked(next);
-  xSemaphoreGive(writer_);
+  writer_.give();
   if (validation) return error(request, "400 Bad Request", validation);
   if (result != SaveResult::ok) return error(request, "503 Service Unavailable", "保存失败，当前配置未改变。");
   return send(request, "application/json; charset=utf-8", "{\"ok\":true}");
 }
+#if !defined(ARDUINO_ARCH_ESP8266)
 bool ConfigPortal::localStage(const char *ssid,const char *password,const char *origin){
- if(storage_.isKey("localTrial")||!w4home_idle()||!w4home_wifi_valid(ssid,password)||xSemaphoreTake(writer_,pdMS_TO_TICKS(1000))!=pdTRUE)return false;
+ if(storage_.isKey("localTrial")||!w4home_idle()||!w4home_wifi_valid(ssid,password)||!writer_.take(1000))return false;
  Settings next=settings();bool ok=true;
  if(!storage_.isKey("localTrial")){auto backup=encodeSettings(next);ok=storage_.putBytes("localBackup",backup.data(),backup.size())==backup.size();}
  std::snprintf(next.ssid,sizeof(next.ssid),"%s",ssid);std::snprintf(next.password,sizeof(next.password),"%s",password);auto trial=encodeSettings(next);
  if(ok)ok=storage_.putBytes("localTrial",trial.data(),trial.size())==trial.size()&&storage_.putString("localOrigin",origin)==std::strlen(origin);
  if(ok)ok=w4home_service_request(origin,false);
- if(ok){portENTER_CRITICAL(&mux_);settings_=next;portEXIT_CRITICAL(&mux_);}
+ if(ok){mux_.lock();settings_=next;mux_.unlock();}
  else {storage_.remove("localTrial");storage_.remove("localBackup");}
- xSemaphoreGive(writer_);return ok;
+ writer_.give();return ok;
 }
 bool ConfigPortal::localCancel(){
- if(xSemaphoreTake(writer_,pdMS_TO_TICKS(1000))!=pdTRUE)return false;
+ if(!writer_.take(1000))return false;
  bool ok=w4home_service_request(nullptr,true);
  if(ok&&storage_.isKey("localTrial")){
   SettingsRecord raw{};Settings old{};ok=storage_.getBytes("localBackup",raw.data(),raw.size())==raw.size()&&decodeSettings(raw,old);
   if(ok){auto next=settings();std::snprintf(next.ssid,sizeof(next.ssid),"%s",old.ssid);std::snprintf(next.password,sizeof(next.password),"%s",old.password);ok=saveLocked(next)==SaveResult::ok;}
   if(ok)ok=storage_.remove("localTrial")&&storage_.remove("localBackup");
  }
- xSemaphoreGive(writer_);return ok;
+ writer_.give();return ok;
 }
 bool ConfigPortal::localClear(){
- if(!localCancel()||xSemaphoreTake(writer_,pdMS_TO_TICKS(1000))!=pdTRUE)return false;
- auto next=settings();next.ssid[0]=next.password[0]=0;bool ok=saveLocked(next)==SaveResult::ok;xSemaphoreGive(writer_);return ok;
+ if(!localCancel()||!writer_.take(1000))return false;
+ auto next=settings();next.ssid[0]=next.password[0]=0;bool ok=saveLocked(next)==SaveResult::ok;writer_.give();return ok;
 }
 void ConfigPortal::localTick(bool connected){
- if(!connected||!storage_.isKey("localTrial")||xSemaphoreTake(writer_,0)!=pdTRUE)return;
+ if(!connected||!storage_.isKey("localTrial")||!writer_.take())return;
  char origin[192];bool ready=false,recovery=false;w4home_local_state(origin,sizeof(origin),&ready,&recovery);
  if(ready&&storage_.getString("localOrigin","")==origin){auto record=encodeSettings(settings());if(storage_.putBytes("settings",record.data(),record.size())==record.size()){storage_.remove("localTrial");storage_.remove("localBackup");}}
- xSemaphoreGive(writer_);
+ writer_.give();
 }
 
+#endif
 }

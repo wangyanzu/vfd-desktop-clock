@@ -15,10 +15,18 @@
 #define CLOCK_I2C_SCL 5
 #endif
 #ifndef CLOCK_VFD_TX
+#if defined(ARDUINO_ARCH_ESP8266)
+#define CLOCK_VFD_TX 2
+#else
 #define CLOCK_VFD_TX 0
 #endif
+#endif
 #ifndef CLOCK_BUTTON_PIN
+#if defined(ARDUINO_ARCH_ESP8266)
+#define CLOCK_BUTTON_PIN 14
+#else
 #define CLOCK_BUTTON_PIN 3
+#endif
 #endif
 
 #ifndef CLOCK_ANIMATION_LEVEL
@@ -49,6 +57,15 @@ constexpr const char* timezone = "CST-8";
 constexpr const char* ntpPrimary = "ntp.aliyun.com";
 constexpr const char* ntpSecondary = "pool.ntp.org";
 static_assert((sda >= 0) == (scl >= 0), "Configure both I2C pins");
+#if defined(ARDUINO_ARCH_ESP8266)
+// Keep flash, boot straps, UART0 and GPIO16 (no GPIO light-sleep wake) free.
+constexpr bool peripheralPin(int pin) {
+  return pin == 4 || pin == 5 || pin == 12 || pin == 13 || pin == 14;
+}
+static_assert(vfdTx == 2, "ESP8266 UART1 TX is fixed on GPIO2");
+static_assert(!hasAht || (peripheralPin(sda) && peripheralPin(scl)), "Invalid ESP8266 I2C GPIO");
+static_assert(!hasButton || peripheralPin(button), "Invalid ESP8266 button GPIO");
+#endif
 static_assert(vfdTx >= 0 && vfdTx <= 21, "Invalid VFD GPIO");
 static_assert(!hasAht || (sda <= 21 && scl <= 21 && sda != scl &&
                          sda != vfdTx && scl != vfdTx), "I2C pin conflict");

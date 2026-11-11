@@ -1,5 +1,5 @@
 #pragma once
-#include <WiFi.h>
+#include "clock/runtime.h"
 #include "clock/network_policy.h"
 #include "clock/settings.h"
 
